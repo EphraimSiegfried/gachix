@@ -1,0 +1,10 @@
+[package]
+name = "gachix"
+version = "0.1.0"
+edition = "2024"
+
+[dependencies]
+git2 = "0.20"
+sha3 = "0.10.8"
+hex = "0.4"
+clap = { version = "4.5.48", features = ["derive"] }
