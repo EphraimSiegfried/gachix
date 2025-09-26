@@ -9,6 +9,7 @@ fn main() -> Result<(), git2::Error> {
     match args.cmd {
         Command::Add(x) => x.run(&cache)?,
         Command::Get(x) => x.run(&cache),
+        Command::List(x) => x.run(&cache),
     };
     Ok(())
 }
@@ -25,6 +26,7 @@ struct Args {
 enum Command {
     Add(Add),
     Get(Get),
+    List(List),
 }
 
 #[derive(Parser)]
@@ -51,6 +53,19 @@ impl Get {
         match result {
             Some(result) => println!("{}", result),
             None => println!("No corresponding Blob found!"),
+        }
+    }
+}
+
+#[derive(Parser)]
+struct List {}
+
+impl List {
+    fn run(&self, cache: &CaCache) {
+        let result = cache.list_entries();
+        match result {
+            Some(result) => result.iter().for_each(|e| println!("{e}")),
+            None => println!("No entries"),
         }
     }
 }

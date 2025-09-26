@@ -56,18 +56,26 @@ impl<'a> CaCache<'a> {
     }
 
     pub fn query(&self, hash_value: &str) -> Option<String> {
-        self.repo.head().ok().and_then(|r| {
-            r.peel_to_commit().ok().and_then(|c| {
-                c.tree().ok().and_then(|t| {
-                    t.get_name(&hash_value).and_then(|entry| {
-                        entry.to_object(&self.repo).ok().and_then(|obj| {
-                            obj.as_blob()
-                                .and_then(|blob| String::from_utf8(blob.content().to_vec()).ok())
-                        })
-                    })
+        self.last_tree().and_then(|t| {
+            t.get_name(&hash_value).and_then(|entry| {
+                entry.to_object(&self.repo).ok().and_then(|obj| {
+                    obj.as_blob()
+                        .and_then(|blob| String::from_utf8(blob.content().to_vec()).ok())
                 })
             })
         })
+    }
+
+    pub fn list_entries(&self) -> Option<Vec<String>> {
+        self.last_tree()
+            .and_then(|t| Some(t.iter().map(|e| e.name().unwrap().to_string()).collect()))
+    }
+
+    fn last_tree(&self) -> Option<Tree<'_>> {
+        self.repo
+            .head()
+            .ok()
+            .and_then(|r| r.peel_to_commit().ok().and_then(|c| c.tree().ok()))
     }
 }
 
