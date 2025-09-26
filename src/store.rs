@@ -1,6 +1,6 @@
-use git2::{FileMode, Repository, Signature, Time};
-use hex;
-use sha3::{Digest, Sha3_256};
+use git2::{FileMode, Repository, Signature, Time, Tree};
+use nix_base32::to_nix_base32;
+use sha2::{Digest, Sha256};
 use std::fs::File;
 use std::io::Read;
 use std::path::Path;
@@ -28,7 +28,7 @@ impl<'a> CaCache<'a> {
         file.read_to_end(&mut buffer).expect("Failed to read file");
         let blob_oid = self.repo.blob(&buffer)?;
 
-        let file_hash = hash(&buffer);
+        let file_hash = base32_encode(&sha256_hash(&buffer));
 
         let head = self.repo.head().ok();
         let parent_commit = if let Some(head_ref) = head {
@@ -71,9 +71,12 @@ impl<'a> CaCache<'a> {
     }
 }
 
-fn hash(buf: &[u8]) -> String {
-    let mut hasher = Sha3_256::new();
+fn sha256_hash(buf: &[u8]) -> Vec<u8> {
+    let mut hasher = Sha256::new();
     hasher.update(buf);
-    let hash_bytes = hasher.finalize();
-    hex::encode(hash_bytes)
+    hasher.finalize().to_vec()
+}
+
+fn base32_encode(hash: &[u8]) -> String {
+    to_nix_base32(hash)
 }
