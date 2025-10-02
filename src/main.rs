@@ -1,4 +1,5 @@
 use clap::{Parser, Subcommand};
+use std::path::PathBuf;
 mod store;
 use crate::store::CaCache;
 
@@ -17,7 +18,7 @@ fn main() -> Result<(), git2::Error> {
 #[derive(Parser)]
 struct Args {
     #[clap(long, default_value("cache"))]
-    store_path: String,
+    store_path: PathBuf,
     #[command(subcommand)]
     cmd: Command,
 }
@@ -31,7 +32,7 @@ enum Command {
 
 #[derive(Parser)]
 struct Add {
-    filepath: String,
+    filepath: PathBuf,
 }
 
 impl Add {

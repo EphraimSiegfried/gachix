@@ -11,8 +11,7 @@ pub struct CaCache<'a> {
 }
 
 impl<'a> CaCache<'a> {
-    pub fn new(path_to_repo: &str) -> Result<Self, git2::Error> {
-        let path_to_repo = Path::new(path_to_repo);
+    pub fn new(path_to_repo: &Path) -> Result<Self, git2::Error> {
         let repo = if path_to_repo.exists() {
             Repository::open(path_to_repo)?
         } else {
@@ -22,24 +21,19 @@ impl<'a> CaCache<'a> {
         Ok(Self { repo, sig })
     }
 
-    pub fn add(&self, path: &str) -> Result<(String, String), git2::Error> {
+    pub fn add(&self, path: &Path) -> Result<(String, String), git2::Error> {
         let mut file = File::open(path).expect("Failed to open file");
         let mut buffer = Vec::new();
         file.read_to_end(&mut buffer).expect("Failed to read file");
-        let blob_oid = self.repo.blob(&buffer)?;
 
         let file_hash = base32_encode(&sha256_hash(&buffer));
 
-        let head = self.repo.head().ok();
-        let parent_commit = if let Some(head_ref) = head {
-            Some(head_ref.peel_to_commit()?)
-        } else {
-            None
-        };
+        let parent_commit = self.repo.head().ok().and_then(|r| r.peel_to_commit().ok());
 
         let last_tree = parent_commit.as_ref().and_then(|commit| commit.tree().ok());
-
         let mut tree_builder = self.repo.treebuilder(last_tree.as_ref())?;
+
+        let blob_oid = self.repo.blob(&buffer)?;
         tree_builder.insert(&file_hash, blob_oid, FileMode::Blob.into())?;
         let tree_oid = tree_builder.write()?;
         let tree = self.repo.find_tree(tree_oid)?;
