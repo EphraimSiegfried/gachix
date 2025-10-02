@@ -1,5 +1,5 @@
 {
-  inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixos-25.05";
+  inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
   inputs.flake-utils.url = "github:numtide/flake-utils";
 
   outputs =
@@ -8,17 +8,16 @@
       flake-utils,
       nixpkgs,
     }:
-    {
-      packages = flake-utils.lib.eachDefaultSystem (
-        system:
-        let
-          pkgs = nixpkgs.legacyPackages.${system};
-        in
-        rec {
-          default = nix-serve;
-          nix-serve = pkgs.callPackage ./package.nix { };
-        }
-      );
-
-    };
+    flake-utils.lib.eachDefaultSystem (
+      system:
+      let
+        pkgs = import nixpkgs {
+          inherit system;
+        };
+      in
+      rec {
+        packages.default = packages.gachix;
+        packages.gachix = pkgs.callPackage ./package.nix { };
+      }
+    );
 }

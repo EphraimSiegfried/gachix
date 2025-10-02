@@ -1,10 +1,20 @@
 {
   rustPlatform,
+  pkgs,
+
 }:
 
 rustPlatform.buildRustPackage (finalAttrs: {
   pname = "gachix";
   version = "0.1.0";
   src = ./.;
-  cargoHash = "sha256-9atn5qyBDy4P6iUoHFhg+TV6Ur71fiah4oTJbBMeEy4=";
+  nativeBuildInputs = [ pkgs.openssl ];
+  env = {
+    PKG_CONFIG_PATH = "${pkgs.openssl.dev}/lib/pkgconfig";
+    OPENSSL_NO_VENDOR = 1;
+    OPENSSL_DIR = "${pkgs.openssl.dev}";
+    OPENSSL_LIB_DIR = "${pkgs.lib.getLib pkgs.openssl}/lib";
+
+  };
+  cargoHash = "sha256-gS+zLl3AMGiVMc/8M+ZsdRMW7JfxlXYvrYnh/V/tIGE=";
 })
