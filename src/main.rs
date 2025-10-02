@@ -38,7 +38,7 @@ struct Add {
 impl Add {
     fn run(&self, cache: &CaCache) -> Result<(), git2::Error> {
         let (hash, blob_id) = cache.add(&self.filepath)?;
-        println!("Hash: {}, Blob ID: {}", hash, blob_id);
+        println!("Key: {}, Value: {}", hash, blob_id);
         Ok(())
     }
 }
@@ -53,7 +53,7 @@ impl Get {
         let result = cache.query(&self.hash_id);
         match result {
             Some(result) => println!("{}", result),
-            None => println!("No corresponding Blob found!"),
+            None => println!("No corresponding value found!"),
         }
     }
 }
