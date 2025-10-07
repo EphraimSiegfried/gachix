@@ -1,7 +1,9 @@
 use clap::{Parser, Subcommand};
-use std::path::PathBuf;
+use std::{io::Write, path::PathBuf};
+mod nar;
 mod store;
 use crate::store::CaCache;
+use std::io;
 
 fn main() -> Result<(), git2::Error> {
     let args = Args::parse();
@@ -50,11 +52,10 @@ struct Get {
 
 impl Get {
     fn run(&self, cache: &CaCache) {
-        let result = cache.query(&self.hash_id);
-        match result {
-            Some(result) => println!("{}", result.to_string()),
-            None => println!("No corresponding value found!"),
-        }
+        let result = cache.get_nar(&self.hash_id).unwrap();
+        io::stdout()
+            .write_all(&result)
+            .expect("Failed to write result to stdout");
     }
 }
 

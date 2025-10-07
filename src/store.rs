@@ -1,3 +1,4 @@
+use crate::nar::NarTreeEncoder;
 use git2::{Commit, FileMode, Oid, Repository, Signature, Time, Tree};
 use nix_base32::to_nix_base32;
 use sha2::{Digest, Sha256};
@@ -62,6 +63,15 @@ impl<'a> CaCache<'a> {
         self.update_tree_and_commit(&dir_name, dir_tree_oid, FileMode::Tree)?;
 
         Ok((dir_name, dir_tree_oid))
+    }
+
+    pub fn get_nar(&self, key: &str) -> Result<Vec<u8>, std::io::Error> {
+        let t = self.last_tree().unwrap();
+        let tree_entry = t.get_name(key).unwrap();
+        let filemode = tree_entry.filemode();
+        let object = tree_entry.to_object(&self.repo).unwrap();
+        let nar_encoder = NarTreeEncoder::new(&self.repo, &object, filemode);
+        nar_encoder.encode()
     }
 
     fn create_tree_from_dir(&self, path: &Path) -> Result<Oid, git2::Error> {
