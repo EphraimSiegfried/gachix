@@ -6,20 +6,18 @@ use std::fs::File;
 use std::io::Read;
 use std::path::Path;
 
-pub struct CaCache<'a> {
+pub struct CaCache {
     repo: Repository,
-    sig: Signature<'a>,
 }
 
-impl<'a> CaCache<'a> {
+impl CaCache {
     pub fn new(path_to_repo: &Path) -> Result<Self, git2::Error> {
         let repo = if path_to_repo.exists() {
             Repository::open(path_to_repo)?
         } else {
             Repository::init(path_to_repo)?
         };
-        let sig = Signature::new("gachix", "gachix@gachix.com", &Time::new(0, 0))?;
-        Ok(Self { repo, sig })
+        Ok(Self { repo })
     }
 
     pub fn add(&self, path: &Path) -> Result<(String, Oid), git2::Error> {
@@ -120,8 +118,10 @@ impl<'a> CaCache<'a> {
     }
 
     fn commit(&self, tree: &Tree, parents: &[&Commit]) -> Result<Oid, git2::Error> {
+        // TODO: optimize by using once_cell
+        let sig = Signature::new("gachix", "gachix@gachix.com", &Time::new(0, 0))?;
         self.repo
-            .commit(Some("HEAD"), &self.sig, &self.sig, "", &tree, parents)
+            .commit(Some("HEAD"), &sig, &sig, "", &tree, parents)
     }
 
     pub fn query(&self, key: &str) -> Option<Oid> {
