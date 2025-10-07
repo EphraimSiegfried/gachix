@@ -1,6 +1,7 @@
 # Devenv
 .devenv*
 devenv.local.nix
+cache
 
 # direnv
 .direnv
