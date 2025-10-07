@@ -4,8 +4,13 @@ mod nar;
 mod store;
 use crate::store::CaCache;
 use std::io;
+mod server;
+use crate::server::start_server;
+use tracing_subscriber;
 
 fn main() -> Result<(), git2::Error> {
+    tracing_subscriber::fmt::init();
+
     let args = Args::parse();
     let cache = CaCache::new(&args.store_path)?;
 
@@ -13,6 +18,7 @@ fn main() -> Result<(), git2::Error> {
         Command::Add(x) => x.run(&cache)?,
         Command::Get(x) => x.run(&cache),
         Command::List(x) => x.run(&cache),
+        Command::Serve(x) => x.run(cache),
     };
     Ok(())
 }
@@ -30,6 +36,7 @@ enum Command {
     Add(Add),
     Get(Get),
     List(List),
+    Serve(Serve),
 }
 
 #[derive(Parser)]
@@ -69,5 +76,18 @@ impl List {
             Some(result) => result.iter().for_each(|e| println!("{e}")),
             None => println!("No entries"),
         }
+    }
+}
+
+#[derive(Parser)]
+struct Serve {
+    #[clap(default_value("8080"))]
+    port: u16,
+    #[clap(default_value("localhost"))]
+    host: String,
+}
+impl Serve {
+    fn run(&self, cache: CaCache) {
+        start_server(&self.host, self.port).unwrap()
     }
 }
