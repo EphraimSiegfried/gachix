@@ -110,11 +110,11 @@ impl<'a> CaCache<'a> {
 
         tree_builder.insert(name, oid, mode.into())?;
         let tree_oid = tree_builder.write()?;
-        let tree = self.repo.find_tree(tree_oid)?;
+        let new_tree = self.repo.find_tree(tree_oid)?;
 
         let parents: Vec<&Commit> = parent_commit.as_ref().into_iter().collect();
 
-        self.commit(&tree, &parents)?;
+        self.commit(&new_tree, &parents)?;
 
         Ok(tree_oid)
     }
