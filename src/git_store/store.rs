@@ -1,5 +1,5 @@
 use crate::nar::NarGitEncoder;
-use git2::{Commit, FileMode, Oid, Repository, Signature, Time, Tree};
+use git2::{FileMode, Oid, Repository, Signature, Time, Tree};
 use nix_base32::to_nix_base32;
 use sha2::{Digest, Sha256};
 use std::fs::File;
@@ -101,27 +101,23 @@ impl GitStore {
         oid: Oid,
         mode: FileMode,
     ) -> Result<Oid, git2::Error> {
-        let parent_commit = self.repo.head().ok().and_then(|r| r.peel_to_commit().ok());
-        let last_tree = parent_commit.as_ref().and_then(|commit| commit.tree().ok());
+        // Retrieve last tree
+        let last_tree = self.last_tree();
 
+        // Create a tree builder based on last tree
         let mut tree_builder = self.repo.treebuilder(last_tree.as_ref())?;
 
+        // Insert new entry into
         tree_builder.insert(name, oid, mode.into())?;
-        let tree_oid = tree_builder.write()?;
-        let new_tree = self.repo.find_tree(tree_oid)?;
+        let new_tree_oid = tree_builder.write()?;
+        let new_tree = self.repo.find_tree(new_tree_oid)?;
 
-        let parents: Vec<&Commit> = parent_commit.as_ref().into_iter().collect();
-
-        self.commit(&new_tree, &parents)?;
-
-        Ok(tree_oid)
-    }
-
-    fn commit(&self, tree: &Tree, parents: &[&Commit]) -> Result<Oid, git2::Error> {
-        // TODO: optimize by using once_cell
+        // Commit
         let sig = Signature::new("gachix", "gachix@gachix.com", &Time::new(0, 0))?;
-        self.repo
-            .commit(Some("HEAD"), &sig, &sig, "", &tree, parents)
+        let commit_oid = self.repo.commit(None, &sig, &sig, "", &new_tree, &[])?;
+        self.repo.set_head_detached(commit_oid)?;
+
+        Ok(new_tree_oid)
     }
 
     pub fn query(&self, key: &str) -> Option<Oid> {
