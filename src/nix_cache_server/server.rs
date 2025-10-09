@@ -1,10 +1,7 @@
-use actix_web::{
-    App, HttpResponse, HttpServer, Responder, get, head,
-    web::{Data, Path},
-};
+use actix_web::{App, HttpResponse, HttpServer, Responder, get, head, web::Path};
 use tracing_actix_web::TracingLogger;
 
-use crate::store::CaCache;
+// use crate::git_store::GitStore;
 
 #[get("/nix-cache-info")]
 async fn nix_cache_info() -> impl Responder {

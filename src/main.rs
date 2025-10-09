@@ -1,18 +1,18 @@
 use clap::{Parser, Subcommand};
 use std::{io::Write, path::PathBuf};
+mod git_store;
 mod nar;
-mod store;
-use crate::store::CaCache;
 use std::io;
-mod server;
-use crate::server::start_server;
+mod nix_cache_server;
+use crate::nix_cache_server::start_server;
+use git_store::GitStore;
 use tracing_subscriber;
 
 fn main() -> Result<(), git2::Error> {
     tracing_subscriber::fmt::init();
 
     let args = Args::parse();
-    let cache = CaCache::new(&args.store_path)?;
+    let cache = GitStore::new(&args.store_path)?;
 
     match args.cmd {
         Command::Add(x) => x.run(&cache)?,
@@ -45,7 +45,7 @@ struct Add {
 }
 
 impl Add {
-    fn run(&self, cache: &CaCache) -> Result<(), git2::Error> {
+    fn run(&self, cache: &GitStore) -> Result<(), git2::Error> {
         let (hash, blob_id) = cache.add(&self.filepath)?;
         println!("Key: {}, Value: {}", hash, blob_id.to_string());
         Ok(())
@@ -58,7 +58,7 @@ struct Get {
 }
 
 impl Get {
-    fn run(&self, cache: &CaCache) {
+    fn run(&self, cache: &GitStore) {
         let result = cache.get_nar(&self.hash_id).unwrap();
         io::stdout()
             .write_all(&result)
@@ -70,7 +70,7 @@ impl Get {
 struct List {}
 
 impl List {
-    fn run(&self, cache: &CaCache) {
+    fn run(&self, cache: &GitStore) {
         let result = cache.list_keys();
         match result {
             Some(result) => result.iter().for_each(|e| println!("{e}")),
@@ -87,7 +87,7 @@ struct Serve {
     host: String,
 }
 impl Serve {
-    fn run(&self, cache: CaCache) {
+    fn run(&self, cache: GitStore) {
         start_server(&self.host, self.port).unwrap()
     }
 }

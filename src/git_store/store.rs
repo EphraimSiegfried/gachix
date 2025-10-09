@@ -1,4 +1,4 @@
-use crate::nar::NarTreeEncoder;
+use crate::nar::NarGitEncoder;
 use git2::{Commit, FileMode, Oid, Repository, Signature, Time, Tree};
 use nix_base32::to_nix_base32;
 use sha2::{Digest, Sha256};
@@ -6,11 +6,11 @@ use std::fs::File;
 use std::io::Read;
 use std::path::Path;
 
-pub struct CaCache {
+pub struct GitStore {
     repo: Repository,
 }
 
-impl CaCache {
+impl GitStore {
     pub fn new(path_to_repo: &Path) -> Result<Self, git2::Error> {
         let repo = if path_to_repo.exists() {
             Repository::open(path_to_repo)?
@@ -68,7 +68,7 @@ impl CaCache {
         let tree_entry = t.get_name(key).unwrap();
         let filemode = tree_entry.filemode();
         let object = tree_entry.to_object(&self.repo).unwrap();
-        let nar_encoder = NarTreeEncoder::new(&self.repo, &object, filemode);
+        let nar_encoder = NarGitEncoder::new(&self.repo, &object, filemode);
         nar_encoder.encode()
     }
 

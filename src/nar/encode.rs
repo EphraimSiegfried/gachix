@@ -4,15 +4,15 @@ use std::io::{self, Error, ErrorKind, Write};
 const NIX_VERSION_MAGIC: &[u8] = b"nix-archive-1";
 const PAD_LEN: usize = 8;
 
-pub struct NarTreeEncoder<'a> {
+pub struct NarGitEncoder<'a> {
     repo: &'a Repository,
     root_obj: &'a Object<'a>,
     root_obj_filemode: i32,
 }
 
-impl<'a> NarTreeEncoder<'a> {
+impl<'a> NarGitEncoder<'a> {
     pub fn new(repo: &'a Repository, root_obj: &'a Object, root_obj_filemode: i32) -> Self {
-        NarTreeEncoder {
+        NarGitEncoder {
             repo,
             root_obj,
             root_obj_filemode,
