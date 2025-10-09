@@ -1,14 +1,17 @@
 use crate::nar::NarGitEncoder;
-use git2::{FileMode, Oid, Repository, Signature, Time, Tree};
+use git2::{FileMode, Oid, Repository, Signature, Time};
 use nix_base32::to_nix_base32;
 use sha2::{Digest, Sha256};
 use std::fs::File;
 use std::io::Read;
 use std::path::Path;
+use std::sync::RwLock;
 
 pub struct GitStore {
-    repo: Repository,
+    repo: RwLock<Repository>,
+    head_tree_oid: RwLock<Option<Oid>>,
 }
+unsafe impl Sync for GitStore {}
 
 impl GitStore {
     pub fn new(path_to_repo: &Path) -> Result<Self, git2::Error> {
@@ -17,7 +20,12 @@ impl GitStore {
         } else {
             Repository::init(path_to_repo)?
         };
-        Ok(Self { repo })
+        let head_tree_oid = Self::get_head_tree_id(&repo);
+
+        Ok(Self {
+            repo: RwLock::new(repo),
+            head_tree_oid: RwLock::new(head_tree_oid),
+        })
     }
 
     pub fn add(&self, path: &Path) -> Result<(String, Oid), git2::Error> {
@@ -40,7 +48,8 @@ impl GitStore {
             return Ok((file_hash, entry));
         }
 
-        let blob_oid = self.repo.blob(&buffer)?;
+        let repo = self.repo.write().unwrap();
+        let blob_oid = repo.blob(&buffer)?;
 
         self.update_tree_and_commit(&file_hash, blob_oid, FileMode::Blob)?;
 
@@ -64,16 +73,23 @@ impl GitStore {
     }
 
     pub fn get_nar(&self, key: &str) -> Result<Vec<u8>, std::io::Error> {
-        let t = self.last_tree().unwrap();
-        let tree_entry = t.get_name(key).unwrap();
+        let repo = self.repo.read().unwrap();
+        let head_tree_oid = *self.head_tree_oid.read().unwrap();
+        let head_tree = head_tree_oid.and_then(|oid| repo.find_tree(oid).ok());
+
+        // TODO: Error handling
+        let head_tree = head_tree.unwrap();
+        let tree_entry = head_tree.get_name(key).unwrap();
         let filemode = tree_entry.filemode();
-        let object = tree_entry.to_object(&self.repo).unwrap();
-        let nar_encoder = NarGitEncoder::new(&self.repo, &object, filemode);
+        let repo = self.repo.read().unwrap();
+        let object = tree_entry.to_object(&repo).unwrap();
+        let nar_encoder = NarGitEncoder::new(&repo, &object, filemode);
         nar_encoder.encode()
     }
 
     fn create_tree_from_dir(&self, path: &Path) -> Result<Oid, git2::Error> {
-        let mut builder = self.repo.treebuilder(None)?;
+        let repo = self.repo.write().unwrap();
+        let mut builder = repo.treebuilder(None)?;
 
         for entry in path.read_dir().expect("Failed to read directory") {
             let entry = entry.expect("Failed to get directory entry");
@@ -85,7 +101,7 @@ impl GitStore {
                 .unwrap();
 
             if entry_path.is_file() {
-                let blob_oid = self.repo.blob_path(&entry_path)?;
+                let blob_oid = repo.blob_path(&entry_path)?;
                 builder.insert(entry_file_name, blob_oid, FileMode::Blob.into())?;
             } else if entry_path.is_dir() {
                 let subtree_oid = self.create_tree_from_dir(&entry_path)?;
@@ -101,40 +117,50 @@ impl GitStore {
         oid: Oid,
         mode: FileMode,
     ) -> Result<Oid, git2::Error> {
-        // Retrieve last tree
-        let last_tree = self.last_tree();
+        let repo = self.repo.write().unwrap();
+        // Retrieve head tree
+        let head_tree_oid = *self.head_tree_oid.read().unwrap();
+        let head_tree = head_tree_oid.and_then(|oid| repo.find_tree(oid).ok());
 
         // Create a tree builder based on last tree
-        let mut tree_builder = self.repo.treebuilder(last_tree.as_ref())?;
+        let mut tree_builder = repo.treebuilder(head_tree.as_ref())?;
 
         // Insert new entry into
         tree_builder.insert(name, oid, mode.into())?;
         let new_tree_oid = tree_builder.write()?;
-        let new_tree = self.repo.find_tree(new_tree_oid)?;
+        let new_tree = repo.find_tree(new_tree_oid)?;
 
         // Commit
         let sig = Signature::new("gachix", "gachix@gachix.com", &Time::new(0, 0))?;
-        let commit_oid = self.repo.commit(None, &sig, &sig, "", &new_tree, &[])?;
-        self.repo.set_head_detached(commit_oid)?;
+        let commit_oid = repo.commit(None, &sig, &sig, "", &new_tree, &[])?;
+        repo.set_head_detached(commit_oid)?;
 
         Ok(new_tree_oid)
     }
 
     pub fn query(&self, key: &str) -> Option<Oid> {
-        let t = self.last_tree()?;
-        t.get_name(key).map(|entry| entry.id())
+        let repo = self.repo.read().unwrap();
+        let head_tree_oid = *self.head_tree_oid.read().unwrap();
+        let head_tree = head_tree_oid.and_then(|oid| repo.find_tree(oid).ok())?;
+        head_tree.get_name(key).map(|entry| entry.id())
     }
 
     pub fn list_keys(&self) -> Option<Vec<String>> {
-        self.last_tree()
-            .and_then(|t| Some(t.iter().map(|e| e.name().unwrap().to_string()).collect()))
+        let repo = self.repo.read().unwrap();
+        let head_tree_oid = *self.head_tree_oid.read().unwrap();
+        let head_tree = head_tree_oid.and_then(|oid| repo.find_tree(oid).ok())?;
+        let keys = head_tree
+            .iter()
+            .map(|e| e.name().unwrap().to_string())
+            .collect();
+        Some(keys)
     }
 
-    fn last_tree(&self) -> Option<Tree<'_>> {
-        self.repo
-            .head()
-            .ok()
-            .and_then(|r| r.peel_to_commit().ok().and_then(|c| c.tree().ok()))
+    fn get_head_tree_id(repo: &Repository) -> Option<Oid> {
+        let head = repo.head().ok()?;
+        let commit = head.peel_to_commit().ok()?;
+        let last_tree = commit.tree().ok()?;
+        Some(last_tree.id())
     }
 }
 
