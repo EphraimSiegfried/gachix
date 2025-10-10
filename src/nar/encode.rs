@@ -1,8 +1,6 @@
+use super::{NIX_VERSION_MAGIC, PAD_LEN};
 use git2::{FileMode, Object, ObjectType, Repository};
 use std::io::{self, Error, ErrorKind, Write};
-
-const NIX_VERSION_MAGIC: &[u8] = b"nix-archive-1";
-const PAD_LEN: usize = 8;
 
 pub struct NarGitEncoder<'a> {
     repo: &'a Repository,
