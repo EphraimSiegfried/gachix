@@ -14,15 +14,13 @@ impl<'a> NarGitDecoder<'a> {
     }
 
     pub fn parse(&self, mut reader: impl Read) -> Result<(Oid, i32)> {
-        if self.read_bytes_padded(&mut reader)? != NIX_VERSION_MAGIC {
-            return Err(anyhow!("Not a valid NAR archive"));
-        }
+        self.read_expect(NIX_VERSION_MAGIC, &mut reader)?;
         self.recursive_parse(&mut reader)
     }
 
     fn recursive_parse(&self, reader: &mut impl Read) -> Result<(Oid, i32)> {
-        self.read_expect("(", reader)?;
-        self.read_expect("type", reader)?;
+        self.read_expect(b"(", reader)?;
+        self.read_expect(b"type", reader)?;
 
         let file_type = self.read_utf8_padded(reader)?;
         let oid;
@@ -34,23 +32,23 @@ impl<'a> NarGitDecoder<'a> {
                 match tag.as_str() {
                     "executable" => {
                         filemode = FileMode::BlobExecutable.into();
-                        self.read_expect("", reader)?;
-                        self.read_expect("contents", reader)?;
+                        self.read_expect(b"", reader)?;
+                        self.read_expect(b"contents", reader)?;
                     }
                     "contents" => filemode = FileMode::Blob,
                     _ => {
                         return Err(anyhow!(
-                            "Expected 'executable' or 'contents', but found '{}'",
+                            "Expected 'executable' or 'contents', instead found '{}'",
                             tag
                         ));
                     }
                 }
                 let data = self.read_bytes_padded(reader)?;
                 oid = self.repo.blob(&data)?;
-                self.read_expect(")", reader)?;
+                self.read_expect(b")", reader)?;
             }
             "symlink" => {
-                self.read_expect("target", reader)?;
+                self.read_expect(b"target", reader)?;
                 let target = self.read_bytes_padded(reader)?;
                 oid = self.repo.blob(&target)?;
                 filemode = FileMode::Link;
@@ -60,13 +58,13 @@ impl<'a> NarGitDecoder<'a> {
                 loop {
                     match self.read_utf8_padded(reader)?.as_str() {
                         "entry" => {
-                            self.read_expect("(", reader)?;
-                            self.read_expect("name", reader)?;
+                            self.read_expect(b"(", reader)?;
+                            self.read_expect(b"name", reader)?;
                             let name = self.read_utf8_padded(reader)?;
-                            self.read_expect("node", reader)?;
+                            self.read_expect(b"node", reader)?;
                             let (oid, filemode) = self.recursive_parse(reader)?;
                             directory_entries.push((oid, filemode, name));
-                            self.read_expect(")", reader)?;
+                            self.read_expect(b")", reader)?;
                         }
                         ")" => break,
                         _ => return Err(anyhow!("Incorrect directory field")),
@@ -84,14 +82,45 @@ impl<'a> NarGitDecoder<'a> {
         Ok((oid, filemode.into()))
     }
 
-    fn read_expect(&self, content: &str, reader: &mut impl Read) -> Result<()> {
-        let read_result = self.read_utf8_padded(reader)?;
-        if read_result != content {
+    fn read_expect(&self, expected: &[u8], reader: &mut impl Read) -> Result<()> {
+        let mut len_buffer = [0u8; PAD_LEN];
+        reader.read_exact(&mut len_buffer[..])?;
+        let actual_len = usize::from_le_bytes(len_buffer);
+        if expected.len() != actual_len {
             return Err(anyhow!(
-                "Expected '{}' tag, instead found: '{}'",
-                content,
-                read_result
+                "Expected '{}' with length {}, instead found something with length {}",
+                String::from_utf8(expected.to_vec()).unwrap(),
+                expected.len(),
+                actual_len
             ));
+        }
+
+        let mut data_buffer = vec![0u8; actual_len];
+        reader.read_exact(&mut data_buffer)?;
+
+        if expected != data_buffer {
+            if let Ok(content_str) = String::from_utf8(data_buffer) {
+                return Err(anyhow!(
+                    "Expected '{}' tag, instead found: '{}'",
+                    String::from_utf8(expected.to_vec()).unwrap(),
+                    content_str
+                ));
+            } else {
+                return Err(anyhow!(
+                    "Expected '{}' tag",
+                    String::from_utf8(expected.to_vec()).unwrap(),
+                ));
+            }
+        }
+
+        let remainder = data_buffer.len() % PAD_LEN;
+        if remainder > 0 {
+            let mut buffer = [0u8; PAD_LEN];
+            let padding = &mut buffer[0..PAD_LEN - remainder];
+            reader.read_exact(padding)?;
+            if !buffer.iter().all(|b| *b == 0) {
+                return Err(anyhow!("Bad archive padding"));
+            }
         }
         Ok(())
     }
