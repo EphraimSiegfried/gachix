@@ -31,7 +31,6 @@ pub fn add_xz_file(cache: &GitStore, path: &PathBuf) -> Result<()> {
 
     let key = path.file_stem().unwrap().to_str().unwrap();
     let key = Path::new(key).file_stem().unwrap().to_str().unwrap();
-    dbg!(key);
 
     cache.add_nar(key, Cursor::new(contents), SUPER_REF)?;
     Ok(())
