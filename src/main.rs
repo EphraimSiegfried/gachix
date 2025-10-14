@@ -1,24 +1,34 @@
 use clap::{Parser, Subcommand};
+use liblzma::bufread::XzDecoder;
+use std::process;
 use std::{io::Write, path::PathBuf};
 mod git_store;
 mod nar;
-use std::io;
+use std::io::{self, BufReader, Cursor, Read};
 mod nix_cache_server;
 use crate::nix_cache_server::start_server;
+use anyhow::Result;
 use git_store::GitStore;
-use tracing_subscriber;
+use std::fs::{self, File};
+use tracing::{Level, trace};
+use tracing_subscriber::fmt;
 
-fn main() -> Result<(), git2::Error> {
-    tracing_subscriber::fmt::init();
+const NARINFO_REF: &str = "refs/NARINFO";
+const SUPER_REF: &str = "refs/SUPER";
+
+fn main() -> Result<()> {
+    fmt::Subscriber::builder()
+        .with_max_level(Level::TRACE)
+        .init();
 
     let args = Args::parse();
     let cache = GitStore::new(&args.store_path)?;
 
     match args.cmd {
         Command::Add(x) => x.run(&cache)?,
-        Command::Get(x) => x.run(&cache),
-        Command::List(x) => x.run(&cache),
-        Command::Serve(x) => x.run(cache),
+        Command::Get(x) => x.run(&cache)?,
+        Command::List(x) => x.run(&cache)?,
+        Command::Serve(x) => x.run(cache)?,
     };
     Ok(())
 }
@@ -41,13 +51,39 @@ enum Command {
 
 #[derive(Parser)]
 struct Add {
-    filepath: PathBuf,
+    narinfo_path: PathBuf,
+    xz_path: PathBuf,
 }
 
 impl Add {
-    fn run(&self, cache: &GitStore) -> Result<(), git2::Error> {
-        let (hash, blob_id) = cache.add(&self.filepath)?;
-        println!("Key: {}, Value: {}", hash, blob_id.to_string());
+    fn run(&self, cache: &GitStore) -> Result<()> {
+        let xz_file = File::open(&self.xz_path).unwrap_or_else(|err| {
+            println!("Could not read nar file: {err}");
+            process::exit(1);
+        });
+        let xz_reader = BufReader::new(xz_file);
+
+        let narinfo_content = fs::read(&self.narinfo_path).unwrap_or_else(|err| {
+            println!("Could not read narinfo file: {err}");
+            process::exit(1);
+        });
+
+        let mut contents = Vec::new();
+        let mut decompressor = XzDecoder::new(xz_reader);
+        decompressor.read_to_end(&mut contents)?;
+
+        trace!("Adding Narinfo");
+        cache.add_file(
+            &self.narinfo_path.file_stem().unwrap().to_str().unwrap(),
+            &narinfo_content,
+            NARINFO_REF,
+        )?;
+        trace!("Adding Nar");
+        cache.add_nar(
+            &self.xz_path.file_stem().unwrap().to_str().unwrap(),
+            Cursor::new(contents),
+            SUPER_REF,
+        )?;
         Ok(())
     }
 }
@@ -58,11 +94,15 @@ struct Get {
 }
 
 impl Get {
-    fn run(&self, cache: &GitStore) {
-        let result = cache.get_nar(&self.hash_id).unwrap();
-        io::stdout()
-            .write_all(&result)
-            .expect("Failed to write result to stdout");
+    fn run(&self, cache: &GitStore) -> Result<()> {
+        let result = cache.get_nar(&self.hash_id, SUPER_REF)?;
+        match result {
+            Some(result) => io::stdout()
+                .write_all(&result)
+                .expect("Failed to write result to stdout"),
+            _ => println!("Entry not in cache"),
+        };
+        Ok(())
     }
 }
 
@@ -70,12 +110,10 @@ impl Get {
 struct List {}
 
 impl List {
-    fn run(&self, cache: &GitStore) {
-        let result = cache.list_keys();
-        match result {
-            Some(result) => result.iter().for_each(|e| println!("{e}")),
-            None => println!("No entries"),
-        }
+    fn run(&self, cache: &GitStore) -> Result<()> {
+        let result = cache.list_keys(SUPER_REF)?;
+        result.iter().for_each(|e| println!("{e}"));
+        Ok(())
     }
 }
 
@@ -87,7 +125,8 @@ struct Serve {
     host: String,
 }
 impl Serve {
-    fn run(&self, cache: GitStore) {
-        start_server(&self.host, self.port).unwrap()
+    fn run(&self, cache: GitStore) -> Result<()> {
+        start_server(&self.host, self.port, cache)?;
+        Ok(())
     }
 }

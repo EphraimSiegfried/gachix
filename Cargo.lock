@@ -624,6 +624,7 @@ dependencies = [
  "anyhow",
  "clap",
  "git2",
+ "liblzma",
  "nix-base32",
  "nix-nar",
  "sha2",
@@ -934,6 +935,26 @@ dependencies = [
  "libssh2-sys",
  "libz-sys",
  "openssl-sys",
+ "pkg-config",
+]
+
+[[package]]
+name = "liblzma"
+version = "0.4.5"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "73c36d08cad03a3fbe2c4e7bb3a9e84c57e4ee4135ed0b065cade3d98480c648"
+dependencies = [
+ "liblzma-sys",
+]
+
+[[package]]
+name = "liblzma-sys"
+version = "0.4.4"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "01b9596486f6d60c3bbe644c0e1be1aa6ccc472ad630fe8927b456973d7cb736"
+dependencies = [
+ "cc",
+ "libc",
  "pkg-config",
 ]
 
