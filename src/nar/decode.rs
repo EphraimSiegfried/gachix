@@ -52,6 +52,7 @@ impl<'a> NarGitDecoder<'a> {
                 let target = self.read_bytes_padded(reader)?;
                 oid = self.repo.blob(&target)?;
                 filemode = FileMode::Link;
+                self.read_expect(b")", reader)?;
             }
             "directory" => {
                 let mut directory_entries = Vec::new();
@@ -87,10 +88,13 @@ impl<'a> NarGitDecoder<'a> {
         reader.read_exact(&mut len_buffer[..])?;
         let actual_len = usize::from_le_bytes(len_buffer);
         if expected.len() != actual_len {
+            // let mut data_buffer = vec![0u8; actual_len];
+            // reader.read_exact(&mut data_buffer)?;
             return Err(anyhow!(
                 "Expected '{}' with length {}, instead found something with length {}",
                 String::from_utf8(expected.to_vec()).unwrap(),
                 expected.len(),
+                // String::from_utf8(data_buffer)?,
                 actual_len
             ));
         }
@@ -155,13 +159,27 @@ impl<'a> NarGitDecoder<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use anyhow::Result;
     use nix_nar::Encoder;
     use std::fs::{self, File};
     use std::io::{Cursor, Read, Write};
     use std::os::unix::fs::{PermissionsExt, symlink};
     use std::path::Path;
     use tempfile::TempDir;
-
+    #[test]
+    // fn test() -> Result<()> {
+    //     let temp_dir = TempDir::new()?;
+    //     let base_path = temp_dir.path();
+    //     let repo = Repository::init(base_path.join("repo"))?;
+    //     let decoder = NarGitDecoder::new(&repo);
+    //
+    //     let nar_content = fs::read(
+    //         "/Users/siegi/gachix/out/0d7ms7s1svrslydl7x1cnbmn04zsxsgpm9s7rx68qbwyzc3cwn26.nar",
+    //     )?;
+    //     let cursor = Cursor::new(nar_content);
+    //     let (_, _) = decoder.parse(cursor)?;
+    //     Ok(())
+    // }
     #[test]
     fn test_decode_regular_file() -> Result<(), Box<dyn std::error::Error>> {
         let temp_dir = TempDir::new()?;
