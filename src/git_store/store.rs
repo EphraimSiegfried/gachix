@@ -1,8 +1,8 @@
 use crate::nar::NarGitEncoder;
 use crate::nar::decode::NarGitDecoder;
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, anyhow};
 use git2::{FileMode, Oid, Repository};
-use std::io::Read;
+use std::io::{Read, Write};
 use std::path::Path;
 use std::sync::RwLock;
 use tracing::{Level, debug, info, span, trace};
@@ -24,7 +24,12 @@ impl GitStore {
         })
     }
 
-    pub fn add_file(&self, key: &str, content: &[u8], tree_ref: &str) -> Result<(String, Oid)> {
+    pub fn add_file_content(
+        &self,
+        key: &str,
+        content: &[u8],
+        tree_ref: &str,
+    ) -> Result<(String, Oid)> {
         // return early if entry already exists
         if let Some(entry) = self.query(&key, tree_ref) {
             return Ok((key.to_string(), entry));
@@ -60,7 +65,28 @@ impl GitStore {
         Ok((key.to_string(), oid))
     }
 
-    pub fn get_nar(&self, key: &str, tree_ref: &str) -> Result<Option<Vec<u8>>> {
+    pub fn get_blob(&self, key: &str, tree_ref: &str) -> Result<Option<Vec<u8>>> {
+        let repo = self.repo.read().unwrap();
+        let Ok(tree_oid) = self.get_oid_from_reference(tree_ref) else {
+            return Ok(None); // Maybe return error?
+        };
+        let tree = repo.find_tree(tree_oid)?;
+        let Some(tree_entry) = tree.get_name(key) else {
+            return Ok(None);
+        };
+        let object = tree_entry.to_object(&repo)?;
+        let blob = object
+            .into_blob()
+            .map_err(|obj| anyhow!("Object was not a blob: {:?}", obj.kind()))?;
+        Ok(Some(blob.content().to_vec()))
+    }
+
+    pub fn get_tree_as_nar(
+        &self,
+        result: &mut impl Write,
+        key: &str,
+        tree_ref: &str,
+    ) -> Result<Option<()>> {
         let repo = self.repo.read().unwrap();
         let Ok(tree_oid) = self.get_oid_from_reference(tree_ref) else {
             return Ok(None);
@@ -74,7 +100,7 @@ impl GitStore {
         let filemode = tree_entry.filemode();
         let object = tree_entry.to_object(&repo)?;
         let nar_encoder = NarGitEncoder::new(&repo, &object, filemode);
-        nar_encoder.encode().map(|r| Some(r))
+        nar_encoder.encode_into(result).map(|r| Some(r))
     }
 
     pub fn get_oid_from_reference(&self, tree_ref: &str) -> Result<Oid> {
@@ -91,7 +117,7 @@ impl GitStore {
         mode: i32,
         tree_ref: &str,
     ) -> Result<Oid> {
-        let span = span!(Level::TRACE, "Update Tree and Commit", name, tree_ref,);
+        let span = span!(Level::TRACE, "Update Tree", name, tree_ref,);
         let _guard = span.enter();
         trace!("Trying to acquire write lock");
         let repo = self.repo.write().unwrap();
