@@ -1,6 +1,8 @@
 use super::{NIX_VERSION_MAGIC, PAD_LEN};
+use anyhow::Result;
+use anyhow::anyhow;
 use git2::{FileMode, Object, ObjectType, Repository};
-use std::io::{self, Error, ErrorKind, Write};
+use std::io::{self, Write};
 
 pub struct NarGitEncoder<'a> {
     repo: &'a Repository,
@@ -17,24 +19,19 @@ impl<'a> NarGitEncoder<'a> {
         }
     }
 
-    pub fn encode(self) -> Result<Vec<u8>, Error> {
+    pub fn encode(self) -> Result<Vec<u8>> {
         let mut buffer = Vec::new();
         self.encode_into(&mut buffer)?;
         Ok(buffer)
     }
 
-    pub fn encode_into<W: Write>(&self, mut writer: W) -> Result<(), Error> {
+    pub fn encode_into<W: Write>(&self, mut writer: W) -> Result<()> {
         write_padded(&mut writer, NIX_VERSION_MAGIC)?;
         self._encode_into(&mut writer, self.root_obj, self.root_obj_filemode)?;
         Ok(())
     }
 
-    fn _encode_into<W: Write>(
-        &self,
-        writer: &mut W,
-        obj: &Object,
-        filemode: i32,
-    ) -> Result<(), Error> {
+    fn _encode_into<W: Write>(&self, writer: &mut W, obj: &Object, filemode: i32) -> Result<()> {
         write_padded(writer, b"(")?;
         write_padded(writer, b"type")?;
         let kind = obj.kind();
@@ -81,14 +78,11 @@ impl<'a> NarGitEncoder<'a> {
                     write_padded(writer, b"target")?;
                     write_padded(writer, blob.content())?;
                 } else {
-                    return Err(Error::new(
-                        ErrorKind::InvalidData,
-                        &format!("Unsupported blob filemode: {}", filemode) as &str,
-                    ));
+                    return Err(anyhow!("Unsupported blob filemode: {}", filemode));
                 }
             }
             _ => {
-                return Err(Error::new(ErrorKind::InvalidData, "Unrecognized file type"));
+                return Err(anyhow!("Unrecognized file type"));
             }
         }
         write_padded(writer, b")")?;
