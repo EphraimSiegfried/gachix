@@ -1,24 +1,18 @@
 use clap::{Parser, Subcommand};
-use liblzma::bufread::XzDecoder;
-use std::process;
 use std::{io::Write, path::PathBuf};
 mod git_store;
 mod nar;
-use std::io::{self, BufReader, Cursor, Read};
+use std::io::{self};
 mod nix_cache_server;
 use crate::nix_cache_server::start_server;
 use anyhow::Result;
-use git_store::GitStore;
-use std::fs::{self, File};
-use tracing::{Level, trace};
+use git_store::{GitStore, nar_info, store_entry};
+use tracing::Level;
 use tracing_subscriber::fmt;
-
-const NARINFO_REF: &str = "refs/NARINFO";
-const SUPER_REF: &str = "refs/SUPER";
 
 fn main() -> Result<()> {
     fmt::Subscriber::builder()
-        .with_max_level(Level::TRACE)
+        .with_max_level(Level::INFO)
         .init();
 
     let args = Args::parse();
@@ -57,33 +51,9 @@ struct Add {
 
 impl Add {
     fn run(&self, cache: &GitStore) -> Result<()> {
-        let xz_file = File::open(&self.xz_path).unwrap_or_else(|err| {
-            println!("Could not read nar file: {err}");
-            process::exit(1);
-        });
-        let xz_reader = BufReader::new(xz_file);
-
-        let narinfo_content = fs::read(&self.narinfo_path).unwrap_or_else(|err| {
-            println!("Could not read narinfo file: {err}");
-            process::exit(1);
-        });
-
-        let mut contents = Vec::new();
-        let mut decompressor = XzDecoder::new(xz_reader);
-        decompressor.read_to_end(&mut contents)?;
-
-        trace!("Adding Narinfo");
-        cache.add_file(
-            &self.narinfo_path.file_stem().unwrap().to_str().unwrap(),
-            &narinfo_content,
-            NARINFO_REF,
-        )?;
-        trace!("Adding Nar");
-        cache.add_nar(
-            &self.xz_path.file_stem().unwrap().to_str().unwrap(),
-            Cursor::new(contents),
-            SUPER_REF,
-        )?;
+        let key = self.narinfo_path.file_stem().unwrap().to_str().unwrap();
+        nar_info::add_file(&cache, &self.narinfo_path, key)?;
+        store_entry::add_xz_file(&cache, &self.xz_path)?;
         Ok(())
     }
 }
@@ -95,7 +65,7 @@ struct Get {
 
 impl Get {
     fn run(&self, cache: &GitStore) -> Result<()> {
-        let result = cache.get_nar(&self.hash_id, SUPER_REF)?;
+        let result = nar_info::get_from_tree(&cache, &self.hash_id)?;
         match result {
             Some(result) => io::stdout()
                 .write_all(&result)
@@ -111,7 +81,7 @@ struct List {}
 
 impl List {
     fn run(&self, cache: &GitStore) -> Result<()> {
-        let result = cache.list_keys(SUPER_REF)?;
+        let result = nar_info::list(cache)?;
         result.iter().for_each(|e| println!("{e}"));
         Ok(())
     }
