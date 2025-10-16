@@ -45,15 +45,12 @@ enum Command {
 
 #[derive(Parser)]
 struct Add {
-    narinfo_path: PathBuf,
-    xz_path: PathBuf,
+    file_path: PathBuf,
 }
 
 impl Add {
     fn run(&self, cache: &GitStore) -> Result<()> {
-        let key = self.narinfo_path.file_stem().unwrap().to_str().unwrap();
-        nar_info::add_file(&cache, &self.narinfo_path, key)?;
-        store_entry::add_xz_file(&cache, &self.xz_path)?;
+        store_entry::add_entry(&cache, &self.file_path)?;
         Ok(())
     }
 }

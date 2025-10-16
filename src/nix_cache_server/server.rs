@@ -32,17 +32,11 @@ async fn get_listing(path: Path<String>) -> impl Responder {
     HttpResponse::Ok().body(hash)
 }
 
-#[get("/nar/{file_hash}.nar.{compression}")]
-async fn get_compressed_nar(
-    cache: Data<Arc<GitStore>>,
-    path: Path<(String, String)>,
-) -> impl Responder {
+#[get("/nar/{file_hash}.nar")]
+async fn get_compressed_nar(cache: Data<Arc<GitStore>>, path: Path<(String)>) -> impl Responder {
     let cache = cache.into_inner();
-    let (hash, compression_method) = path.into_inner();
-    if compression_method != "xz" {
-        return HttpResponse::NotFound().body("Only supporting xz compression");
-    }
-    match store_entry::get_as_xz(&cache, &hash) {
+    let hash = path.into_inner();
+    match store_entry::get_as_nar(&cache, &hash) {
         Ok(Some(nar)) => HttpResponse::Ok().body(nar),
         Ok(None) => HttpResponse::NotFound().body("Entry is not in the Cache"),
         _ => HttpResponse::InternalServerError().body("Server error while fetching entry"),
