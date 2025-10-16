@@ -29,7 +29,7 @@ fn main() -> Result<()> {
 
 #[derive(Parser)]
 struct Args {
-    #[clap(long, default_value("cache"))]
+    #[clap(short, long, default_value("cache"))]
     store_path: PathBuf,
     #[command(subcommand)]
     cmd: Command,
@@ -89,9 +89,9 @@ impl List {
 
 #[derive(Parser)]
 struct Serve {
-    #[clap(default_value("8080"))]
+    #[clap(long, default_value("8080"))]
     port: u16,
-    #[clap(default_value("localhost"))]
+    #[clap(long, default_value("localhost"))]
     host: String,
 }
 impl Serve {
