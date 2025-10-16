@@ -627,8 +627,6 @@ dependencies = [
  "liblzma",
  "nix-base32",
  "nix-nar",
- "serde",
- "serde_json",
  "sha2",
  "tempfile",
  "tracing",

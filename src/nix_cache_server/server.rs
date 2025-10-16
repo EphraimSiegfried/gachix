@@ -10,8 +10,8 @@ use crate::git_store::GitStore;
 
 #[get("/nix-cache-info")]
 async fn nix_cache_info() -> impl Responder {
-    let default_cache_info = serde_json::to_vec(&cache_info::CacheInfo::default()).unwrap();
-    HttpResponse::Ok().body(default_cache_info)
+    let default_cache_info = cache_info::CacheInfo::default();
+    HttpResponse::Ok().body(default_cache_info.to_string())
 }
 
 #[get("/{nix_hash}.narinfo")]
