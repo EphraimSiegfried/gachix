@@ -39,9 +39,18 @@ impl GitStore {
         let blob_oid = read_repo.blob(content)?;
         drop(read_repo);
 
-        self.update_tree_and_commit(key, blob_oid, FileMode::Blob.into(), tree_ref)?;
+        self.update_tree(key, blob_oid, FileMode::Blob.into(), tree_ref)?;
 
         Ok((key.to_string(), blob_oid))
+    }
+
+    pub fn add_dir(&self, key: &str, path: &Path, tree_ref: &str) -> Result<(String, Oid)> {
+        if let Some(entry) = self.query(&key, tree_ref) {
+            return Ok((key.to_string(), entry));
+        }
+        let tree_oid = self.create_tree_from_dir(&path)?;
+        self.update_tree(key, tree_oid, FileMode::Tree.into(), tree_ref)?;
+        Ok((key.to_string(), tree_oid))
     }
 
     pub fn add_nar(&self, key: &str, content: impl Read, tree_ref: &str) -> Result<(String, Oid)> {
@@ -61,7 +70,7 @@ impl GitStore {
             .with_context(|| "Error decoding NAR file")?;
         drop(repo);
 
-        self.update_tree_and_commit(key, oid, filemode, tree_ref)?;
+        self.update_tree(key, oid, filemode, tree_ref)?;
         Ok((key.to_string(), oid))
     }
 
@@ -110,13 +119,30 @@ impl GitStore {
         Ok(tree.id())
     }
 
-    fn update_tree_and_commit(
-        &self,
-        name: &str,
-        oid: Oid,
-        mode: i32,
-        tree_ref: &str,
-    ) -> Result<Oid> {
+    fn create_tree_from_dir(&self, path: &Path) -> Result<Oid> {
+        let repo = self.repo.read().unwrap();
+        let mut builder = repo.treebuilder(None)?;
+
+        for entry in path.read_dir()? {
+            let entry_path = entry?.path();
+            let entry_file_name = entry_path
+                .file_name()
+                .expect("Failed to get filename")
+                .to_str()
+                .unwrap();
+
+            if entry_path.is_file() {
+                let blob_oid = repo.blob_path(&entry_path)?;
+                builder.insert(entry_file_name, blob_oid, FileMode::Blob.into())?;
+            } else if entry_path.is_dir() {
+                let subtree_oid = self.create_tree_from_dir(&entry_path)?;
+                builder.insert(entry_file_name, subtree_oid, FileMode::Tree.into())?;
+            }
+        }
+        Ok(builder.write()?)
+    }
+
+    fn update_tree(&self, name: &str, oid: Oid, mode: i32, tree_ref: &str) -> Result<Oid> {
         let span = span!(Level::TRACE, "Update Tree", name, tree_ref,);
         let _guard = span.enter();
         trace!("Trying to acquire write lock");
