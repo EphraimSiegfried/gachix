@@ -12,3 +12,4 @@ cache
 # Added by cargo
 
 /target
+result
