@@ -2,7 +2,10 @@ use crate::nar::NarGitEncoder;
 use crate::nar::decode::NarGitDecoder;
 use anyhow::{Context, Result, anyhow};
 use git2::{FileMode, Oid, Repository};
+use std::fs;
 use std::io::{Read, Write};
+use std::os::unix::ffi::OsStrExt;
+use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 use std::sync::RwLock;
 use tracing::{Level, debug, info, span, trace};
@@ -131,9 +134,21 @@ impl GitStore {
                 .to_str()
                 .unwrap();
 
-            if entry_path.is_file() {
+            if entry_path.is_symlink() {
+                let target = fs::read_link(&entry_path)?;
+                let blob_oid = repo.blob(target.as_os_str().as_bytes())?;
+                builder.insert(entry_file_name, blob_oid, FileMode::Link.into())?;
+            } else if entry_path.is_file() {
+                dbg!(&entry_path);
+                let permissions = entry_path.metadata()?.permissions();
+                let is_executable = permissions.mode() & 0o111 != 0;
+                let filemode = if is_executable {
+                    FileMode::BlobExecutable
+                } else {
+                    FileMode::Blob
+                };
                 let blob_oid = repo.blob_path(&entry_path)?;
-                builder.insert(entry_file_name, blob_oid, FileMode::Blob.into())?;
+                builder.insert(entry_file_name, blob_oid, filemode.into())?;
             } else if entry_path.is_dir() {
                 let subtree_oid = self.create_tree_from_dir(&entry_path)?;
                 builder.insert(entry_file_name, subtree_oid, FileMode::Tree.into())?;
