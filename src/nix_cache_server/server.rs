@@ -33,7 +33,7 @@ async fn get_listing(path: Path<String>) -> impl Responder {
 }
 
 #[get("/nar/{file_hash}.nar")]
-async fn get_compressed_nar(cache: Data<Arc<GitStore>>, path: Path<(String)>) -> impl Responder {
+async fn get_nar(cache: Data<Arc<GitStore>>, path: Path<String>) -> impl Responder {
     let cache = cache.into_inner();
     let hash = path.into_inner();
     match store_entry::get_as_nar(&cache, &hash) {
@@ -65,7 +65,7 @@ pub async fn start_server(host: &str, port: u16, cache: GitStore) -> std::io::Re
             .service(get_narinfo)
             .service(nix_cache_info)
             .service(nar_exists)
-            .service(get_compressed_nar)
+            .service(get_nar)
             .service(get_listing)
     })
     .bind((host, port))?
