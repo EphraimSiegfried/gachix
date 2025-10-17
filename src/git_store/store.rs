@@ -139,7 +139,6 @@ impl GitStore {
                 let blob_oid = repo.blob(target.as_os_str().as_bytes())?;
                 builder.insert(entry_file_name, blob_oid, FileMode::Link.into())?;
             } else if entry_path.is_file() {
-                dbg!(&entry_path);
                 let permissions = entry_path.metadata()?.permissions();
                 let is_executable = permissions.mode() & 0o111 != 0;
                 let filemode = if is_executable {
