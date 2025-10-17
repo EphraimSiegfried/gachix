@@ -27,6 +27,9 @@ pub fn add_entry(cache: &GitStore, path: &PathBuf) -> Result<()> {
     let nar_info = NarInfo::new(key.to_string(), format!("nar/{}.nar", key.to_string()));
     let nar_info = nar_info.to_string();
 
+    if cache.query(&key, NARINFO_REF).is_some() {
+        return Ok(());
+    }
     cache.add_file_content(&key, nar_info.as_bytes(), NARINFO_REF)?;
     if path.is_dir() {
         cache.add_dir(&key, path, SUPER_REF)?;
