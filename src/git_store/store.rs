@@ -1,4 +1,5 @@
 use crate::nar::NarGitEncoder;
+use crate::nar::NarGitStream;
 use crate::nar::decode::NarGitDecoder;
 use anyhow::{Context, Result, anyhow};
 use git2::{FileMode, Oid, Repository};
@@ -7,13 +8,14 @@ use std::io::{Read, Write};
 use std::os::unix::ffi::OsStrExt;
 use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
-use std::sync::RwLock;
+use std::sync::{Arc, RwLock};
 use tracing::{Level, debug, info, span, trace};
 
 pub struct GitStore {
-    repo: RwLock<Repository>,
+    repo: Arc<RwLock<Repository>>,
 }
 unsafe impl Sync for GitStore {}
+unsafe impl Send for GitStore {}
 
 impl GitStore {
     pub fn new(path_to_repo: &Path) -> Result<Self, git2::Error> {
@@ -23,7 +25,7 @@ impl GitStore {
             Repository::init(path_to_repo)?
         };
         Ok(Self {
-            repo: RwLock::new(repo),
+            repo: RwLock::new(repo).into(),
         })
     }
 
@@ -115,6 +117,30 @@ impl GitStore {
         nar_encoder.encode_into(result).map(|r| Some(r))
     }
 
+    pub fn get_tree_as_nar_stream(
+        &self,
+        key: &str,
+        tree_ref: &str,
+    ) -> Result<Option<NarGitStream>> {
+        let repo = self.repo.read().unwrap();
+        let Ok(tree_oid) = self.get_oid_from_reference(tree_ref) else {
+            return Ok(None);
+        };
+
+        let tree = repo.find_tree(tree_oid)?;
+        let Some(tree_entry) = tree.get_name(key) else {
+            return Ok(None);
+        };
+
+        let filemode = tree_entry.filemode();
+        let oid = tree_entry.id();
+
+        // let repo_cloned = repo.clone();
+        let repo_owned = Arc::clone(&self.repo);
+        let stream = NarGitStream::new(repo_owned, oid, filemode);
+        Ok(Some(stream))
+    }
+
     pub fn get_oid_from_reference(&self, tree_ref: &str) -> Result<Oid> {
         let repo = self.repo.read().unwrap();
         let reference = repo.find_reference(tree_ref)?;
@@ -199,5 +225,13 @@ impl GitStore {
         let tree = repo.find_tree(tree_oid)?;
         let keys = tree.iter().map(|e| e.name().unwrap().to_string()).collect();
         Ok(keys)
+    }
+}
+
+impl Clone for GitStore {
+    fn clone(&self) -> Self {
+        Self {
+            repo: self.repo.clone(),
+        }
     }
 }

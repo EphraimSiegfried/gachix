@@ -1,3 +1,4 @@
+use crate::nar::NarGitStream;
 use crate::nar_info::NarInfo;
 use anyhow::anyhow;
 use regex::Regex;
@@ -37,6 +38,9 @@ pub fn add_entry(cache: &GitStore, path: &PathBuf) -> Result<()> {
         cache.add_file_content(&key, &fs::read(path)?, SUPER_REF)?;
     }
     Ok(())
+}
+pub fn get_as_nar_stream(cache: &GitStore, key: &str) -> Result<Option<NarGitStream>> {
+    cache.get_tree_as_nar_stream(key, "refs/SUPER")
 }
 
 fn get_hash_from_path(path: &PathBuf) -> Result<String> {

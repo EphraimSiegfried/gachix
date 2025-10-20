@@ -12,7 +12,7 @@ use tracing_subscriber::fmt;
 
 fn main() -> Result<()> {
     fmt::Subscriber::builder()
-        .with_max_level(Level::INFO)
+        .with_max_level(Level::DEBUG)
         .init();
 
     let args = Args::parse();
@@ -62,7 +62,7 @@ struct Get {
 
 impl Get {
     fn run(&self, cache: &GitStore) -> Result<()> {
-        let result = nar_info::get_from_tree(&cache, &self.hash_id)?;
+        let result = store_entry::get_as_nar(&cache, &self.hash_id)?;
         match result {
             Some(result) => io::stdout()
                 .write_all(&result)

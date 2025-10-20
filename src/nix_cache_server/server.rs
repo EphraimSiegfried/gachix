@@ -1,8 +1,9 @@
 use crate::git_store::{cache_info, nar_info, store_entry};
 use actix_web::{
-    App, HttpResponse, HttpServer, Responder, get, head,
-    web::{Data, Path},
+    App, Error, HttpResponse, HttpServer, Responder, get, head,
+    web::{self, Data, Path},
 };
+use futures::{future::ok, stream::once};
 use std::sync::Arc;
 use tracing_actix_web::TracingLogger;
 
@@ -15,7 +16,7 @@ async fn nix_cache_info() -> impl Responder {
 }
 
 #[get("/{nix_hash}.narinfo")]
-async fn get_narinfo(cache: Data<Arc<GitStore>>, path: Path<String>) -> impl Responder {
+async fn get_narinfo(cache: Data<GitStore>, path: Path<String>) -> impl Responder {
     let cache = cache.into_inner();
     let hash = path.into_inner();
     let res = nar_info::get_from_tree(&cache, &hash);
@@ -33,18 +34,18 @@ async fn get_listing(path: Path<String>) -> impl Responder {
 }
 
 #[get("/nar/{file_hash}.nar")]
-async fn get_nar(cache: Data<Arc<GitStore>>, path: Path<String>) -> impl Responder {
+async fn get_nar(cache: Data<GitStore>, path: Path<String>) -> impl Responder {
     let cache = cache.into_inner();
     let hash = path.into_inner();
-    match store_entry::get_as_nar(&cache, &hash) {
-        Ok(Some(nar)) => HttpResponse::Ok().body(nar),
+    match store_entry::get_as_nar_stream(&cache, &hash) {
+        Ok(Some(nar_stream)) => HttpResponse::Ok().streaming(nar_stream),
         Ok(None) => HttpResponse::NotFound().body("Entry is not in the Cache"),
         _ => HttpResponse::InternalServerError().body("Server error while fetching entry"),
     }
 }
 
 #[head("/{nix_hash}.narinfo")]
-async fn nar_exists(cache: Data<Arc<GitStore>>, path: Path<String>) -> impl Responder {
+async fn nar_exists(cache: Data<GitStore>, path: Path<String>) -> impl Responder {
     let cache = cache.into_inner();
     let hash = path.into_inner();
 
@@ -57,7 +58,6 @@ async fn nar_exists(cache: Data<Arc<GitStore>>, path: Path<String>) -> impl Resp
 
 #[actix_web::main]
 pub async fn start_server(host: &str, port: u16, cache: GitStore) -> std::io::Result<()> {
-    let cache = Arc::new(cache);
     HttpServer::new(move || {
         App::new()
             .wrap(TracingLogger::default())
