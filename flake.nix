@@ -1,23 +1,34 @@
 {
-  inputs.nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
-  inputs.flake-utils.url = "github:numtide/flake-utils";
+  inputs = {
+    flake-utils.url = "github:numtide/flake-utils";
+    naersk.url = "github:nix-community/naersk";
+    nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
+  };
 
   outputs =
     {
       self,
       flake-utils,
+      naersk,
       nixpkgs,
     }:
     flake-utils.lib.eachDefaultSystem (
       system:
       let
-        pkgs = import nixpkgs {
+        pkgs = (import nixpkgs) {
           inherit system;
         };
+
+        naersk' = pkgs.callPackage naersk { };
       in
-      rec {
-        packages.default = packages.gachix;
-        packages.gachix = pkgs.callPackage ./package.nix { };
+      {
+        defaultPackage = naersk'.buildPackage {
+          src = ./.;
+          PKG_CONFIG_PATH = "${pkgs.openssl.dev}/lib/pkgconfig";
+          OPENSSL_NO_VENDOR = 1;
+          OPENSSL_DIR = "${pkgs.openssl.dev}";
+          OPENSSL_LIB_DIR = "${pkgs.lib.getLib pkgs.openssl}/lib";
+        };
       }
     );
 }
