@@ -2,6 +2,8 @@ use crate::nar::NarGitEncoder;
 use crate::nar::NarGitStream;
 use crate::nar::decode::NarGitDecoder;
 use anyhow::{Context, Result, anyhow};
+use git2::Signature;
+use git2::Time;
 use git2::{FileMode, Oid, Repository};
 use std::fs;
 use std::io::{Read, Write};
@@ -208,6 +210,21 @@ impl GitStore {
         repo.reference(tree_ref, new_tree_oid, true, "")?;
 
         Ok(new_tree_oid)
+    }
+
+    pub fn commit(&self, tree_oid: Oid, parent_oids: &[Oid]) -> Result<Oid> {
+        let sig = Signature::new("", "", &Time::new(0, 0))?;
+        let repo = self.repo.write().unwrap();
+        let commit_tree = repo.find_tree(tree_oid)?;
+        let mut parents: Vec<git2::Commit<'_>> = Vec::new();
+        for oid in parent_oids.iter() {
+            let commit = repo.find_commit(*oid)?;
+            parents.push(commit);
+        }
+        let parents: Vec<&git2::Commit<'_>> = parents.iter().collect();
+
+        let commit_oid = repo.commit(None, &sig, &sig, "", &commit_tree, parents.as_slice())?;
+        Ok(commit_oid)
     }
 
     pub fn query(&self, key: &str, tree_ref: &str) -> Option<Oid> {
