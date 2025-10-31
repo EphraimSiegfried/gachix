@@ -5,6 +5,7 @@ use anyhow::{Context, Result, anyhow};
 use git2::Signature;
 use git2::Time;
 use git2::{FileMode, Oid, Repository};
+use std::collections::HashMap;
 use std::fs;
 use std::io::{Read, Write};
 use std::os::unix::ffi::OsStrExt;
@@ -13,13 +14,13 @@ use std::path::Path;
 use std::sync::{Arc, RwLock};
 use tracing::{Level, debug, info, span, trace};
 
-pub struct GitStore {
+pub struct GitRepo {
     repo: Arc<RwLock<Repository>>,
 }
-unsafe impl Sync for GitStore {}
-unsafe impl Send for GitStore {}
+unsafe impl Sync for GitRepo {}
+unsafe impl Send for GitRepo {}
 
-impl GitStore {
+impl GitRepo {
     pub fn new(path_to_repo: &Path) -> Result<Self, git2::Error> {
         let repo = if path_to_repo.exists() {
             Repository::open(path_to_repo)?
@@ -31,15 +32,10 @@ impl GitStore {
         })
     }
 
-    pub fn add_file_content(
-        &self,
-        key: &str,
-        content: &[u8],
-        tree_ref: &str,
-    ) -> Result<(String, Oid)> {
+    pub fn add_file_content(&self, key: &str, content: &[u8], tree_ref: &str) -> Result<Oid> {
         // return early if entry already exists
         if let Some(entry) = self.query(&key, tree_ref) {
-            return Ok((key.to_string(), entry));
+            return Ok(entry);
         }
 
         let read_repo = self.repo.read().unwrap();
@@ -48,25 +44,29 @@ impl GitStore {
 
         self.update_tree(key, blob_oid, FileMode::Blob.into(), tree_ref)?;
 
-        Ok((key.to_string(), blob_oid))
+        Ok(blob_oid)
     }
 
-    pub fn add_dir(&self, key: &str, path: &Path, tree_ref: &str) -> Result<(String, Oid)> {
+    pub fn add_dir<T: AsRef<Path>>(&self, key: &str, path: &T, tree_ref: &str) -> Result<Oid> {
+        let path = path.as_ref();
+        if !path.is_dir() {
+            return Err(anyhow!("No such directory: {}", path.to_str().unwrap()));
+        }
         if let Some(entry) = self.query(&key, tree_ref) {
-            return Ok((key.to_string(), entry));
+            return Ok(entry);
         }
         let tree_oid = self.create_tree_from_dir(&path)?;
         self.update_tree(key, tree_oid, FileMode::Tree.into(), tree_ref)?;
-        Ok((key.to_string(), tree_oid))
+        Ok(tree_oid)
     }
 
-    pub fn add_nar(&self, key: &str, content: impl Read, tree_ref: &str) -> Result<(String, Oid)> {
+    pub fn add_nar(&self, key: &str, content: impl Read, tree_ref: &str) -> Result<Oid> {
         let span = span!(Level::TRACE, "Add Nar", key);
         let _guard = span.enter();
         // return early if entry already exists
         if let Some(entry) = self.query(&key, tree_ref) {
             debug!("Cache Hit");
-            return Ok((key.to_string(), entry));
+            return Ok(entry);
         }
 
         let repo = self.repo.read().unwrap();
@@ -78,7 +78,7 @@ impl GitStore {
         drop(repo);
 
         self.update_tree(key, oid, filemode, tree_ref)?;
-        Ok((key.to_string(), oid))
+        Ok(oid)
     }
 
     pub fn get_blob(&self, key: &str, tree_ref: &str) -> Result<Option<Vec<u8>>> {
@@ -212,8 +212,8 @@ impl GitStore {
         Ok(new_tree_oid)
     }
 
-    pub fn commit(&self, tree_oid: Oid, parent_oids: &[Oid]) -> Result<Oid> {
-        let sig = Signature::new("", "", &Time::new(0, 0))?;
+    pub fn commit(&self, tree_oid: Oid, parent_oids: &[Oid], comment: Option<&str>) -> Result<Oid> {
+        let sig = Signature::new("gachix", "gachix@gachix.com", &Time::new(0, 0))?;
         let repo = self.repo.write().unwrap();
         let commit_tree = repo.find_tree(tree_oid)?;
         let mut parents: Vec<git2::Commit<'_>> = Vec::new();
@@ -223,8 +223,28 @@ impl GitStore {
         }
         let parents: Vec<&git2::Commit<'_>> = parents.iter().collect();
 
-        let commit_oid = repo.commit(None, &sig, &sig, "", &commit_tree, parents.as_slice())?;
+        let commit_oid = repo.commit(
+            None,
+            &sig,
+            &sig,
+            comment.unwrap_or(""),
+            &commit_tree,
+            parents.as_slice(),
+        )?;
         Ok(commit_oid)
+    }
+
+    pub fn get_tree_to_commit_map(&self) -> Result<HashMap<Oid, Oid>> {
+        let repo = self.repo.read().unwrap();
+        let mut tree_to_commit = HashMap::new();
+        repo.odb()?.foreach(|oid| {
+            if let Ok(commit) = repo.find_commit(oid.clone()) {
+                let tree_oid = commit.tree().unwrap().id();
+                tree_to_commit.insert(tree_oid, oid.clone());
+            }
+            true
+        })?;
+        Ok(tree_to_commit)
     }
 
     pub fn query(&self, key: &str, tree_ref: &str) -> Option<Oid> {
@@ -238,17 +258,58 @@ impl GitStore {
 
     pub fn list_keys(&self, tree_ref: &str) -> Result<Vec<String>> {
         let repo = self.repo.read().unwrap();
-        let tree_oid = self.get_oid_from_reference(tree_ref)?;
+        let Ok(tree_oid) = self.get_oid_from_reference(tree_ref) else {
+            return Ok(Vec::new());
+        };
         let tree = repo.find_tree(tree_oid)?;
         let keys = tree.iter().map(|e| e.name().unwrap().to_string()).collect();
         Ok(keys)
     }
 }
 
-impl Clone for GitStore {
+impl Clone for GitRepo {
     fn clone(&self) -> Self {
         Self {
             repo: self.repo.clone(),
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use anyhow::Result;
+    use rand::distributions::{Alphanumeric, DistString};
+    use rand::{self};
+    use std::fs;
+    use std::path::PathBuf;
+    use tempfile::TempDir;
+
+    fn create_random_package(dir: &PathBuf) -> Result<PathBuf> {
+        let mut rng = rand::thread_rng();
+        let random_string = Alphanumeric.sample_string(&mut rng, 5);
+        let package_path = dir.join(&random_string);
+        fs::create_dir(&package_path)?;
+        fs::write(package_path.join("some_file"), random_string)?;
+        Ok(package_path.to_path_buf())
+    }
+
+    #[test]
+    fn test_tree_to_commit_map() -> Result<()> {
+        let temp = TempDir::new()?;
+        let repo_path = temp.path().join("test_repo");
+        let repo = GitRepo::new(&repo_path)?;
+        let t1 = repo.add_dir("1", &create_random_package(&repo_path)?, "refs/some_ref")?;
+        let t2 = repo.add_dir("2", &create_random_package(&repo_path)?, "refs/some_ref")?;
+        let c1 = repo.commit(t1, &[], None)?;
+        let c2 = repo.commit(t2, &[], None)?;
+        let actual = repo.get_tree_to_commit_map()?;
+
+        let mut expected = HashMap::new();
+        expected.insert(t1, c1);
+        expected.insert(t2, c2);
+
+        assert_eq!(expected, actual);
+        Ok(())
     }
 }

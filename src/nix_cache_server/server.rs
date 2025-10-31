@@ -1,13 +1,10 @@
-use crate::git_store::{cache_info, nar_info, store_entry};
+use crate::git_store::store_entry::Store;
+use crate::nix_interface::cache_info;
 use actix_web::{
-    App, Error, HttpResponse, HttpServer, Responder, get, head,
-    web::{self, Data, Path},
+    App, HttpResponse, HttpServer, Responder, get, head,
+    web::{Data, Path},
 };
-use futures::{future::ok, stream::once};
-use std::sync::Arc;
 use tracing_actix_web::TracingLogger;
-
-use crate::git_store::GitStore;
 
 #[get("/nix-cache-info")]
 async fn nix_cache_info() -> impl Responder {
@@ -16,10 +13,10 @@ async fn nix_cache_info() -> impl Responder {
 }
 
 #[get("/{nix_hash}.narinfo")]
-async fn get_narinfo(cache: Data<GitStore>, path: Path<String>) -> impl Responder {
+async fn get_narinfo(cache: Data<Store>, path: Path<String>) -> impl Responder {
     let cache = cache.into_inner();
     let hash = path.into_inner();
-    let res = nar_info::get_from_tree(&cache, &hash);
+    let res = cache.get_narinfo(&hash);
     match res {
         Ok(Some(nar_info)) => HttpResponse::Ok().body(nar_info),
         Ok(None) => HttpResponse::NotFound().body("Entry is not in the Cache"),
@@ -34,10 +31,11 @@ async fn get_listing(path: Path<String>) -> impl Responder {
 }
 
 #[get("/nar/{file_hash}.nar")]
-async fn get_nar(cache: Data<GitStore>, path: Path<String>) -> impl Responder {
+async fn get_nar(cache: Data<Store>, path: Path<String>) -> impl Responder {
     let cache = cache.into_inner();
     let hash = path.into_inner();
-    match store_entry::get_as_nar_stream(&cache, &hash) {
+
+    match cache.get_as_nar_stream(&hash) {
         Ok(Some(nar_stream)) => HttpResponse::Ok().streaming(nar_stream),
         Ok(None) => HttpResponse::NotFound().body("Entry is not in the Cache"),
         _ => HttpResponse::InternalServerError().body("Server error while fetching entry"),
@@ -45,23 +43,22 @@ async fn get_nar(cache: Data<GitStore>, path: Path<String>) -> impl Responder {
 }
 
 #[head("/{nix_hash}.narinfo")]
-async fn nar_exists(cache: Data<GitStore>, path: Path<String>) -> impl Responder {
+async fn nar_exists(cache: Data<Store>, path: Path<String>) -> impl Responder {
     let cache = cache.into_inner();
     let hash = path.into_inner();
 
-    if nar_info::exists(&cache, &hash) {
-        HttpResponse::Ok()
-    } else {
-        HttpResponse::NotFound()
+    match cache.entry_exists(&hash) {
+        Ok(true) => HttpResponse::Ok(),
+        _ => HttpResponse::NotFound(),
     }
 }
 
 #[actix_web::main]
-pub async fn start_server(host: &str, port: u16, cache: GitStore) -> std::io::Result<()> {
+pub async fn start_server(host: &str, port: u16, store: Store) -> std::io::Result<()> {
     HttpServer::new(move || {
         App::new()
             .wrap(TracingLogger::default())
-            .app_data(Data::new(cache.clone()))
+            .app_data(Data::new(store.clone()))
             .service(get_narinfo)
             .service(nix_cache_info)
             .service(nar_exists)

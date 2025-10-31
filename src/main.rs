@@ -1,12 +1,14 @@
 use clap::{Parser, Subcommand};
-use std::{io::Write, path::PathBuf};
+use std::path::PathBuf;
 mod git_store;
 mod nar;
-use std::io::{self};
 mod nix_cache_server;
+mod nix_interface;
 use crate::nix_cache_server::start_server;
+use crate::nix_interface::path::NixPath;
 use anyhow::Result;
-use git_store::{GitStore, nar_info, store_entry};
+use git_store::{GitRepo, store_entry::Store};
+use tokio::runtime::Runtime;
 use tracing::Level;
 use tracing_subscriber::fmt;
 
@@ -16,11 +18,11 @@ fn main() -> Result<()> {
         .init();
 
     let args = Args::parse();
-    let cache = GitStore::new(&args.store_path)?;
+    let repo = GitRepo::new(&args.store_path)?;
+    let cache = Store::new(repo)?;
 
     match args.cmd {
         Command::Add(x) => x.run(&cache)?,
-        Command::Get(x) => x.run(&cache)?,
         Command::List(x) => x.run(&cache)?,
         Command::Serve(x) => x.run(cache)?,
     };
@@ -38,7 +40,6 @@ struct Args {
 #[derive(Subcommand)]
 enum Command {
     Add(Add),
-    Get(Get),
     List(List),
     Serve(Serve),
 }
@@ -49,27 +50,15 @@ struct Add {
 }
 
 impl Add {
-    fn run(&self, cache: &GitStore) -> Result<()> {
-        store_entry::add_entry(&cache, &self.file_path)?;
+    async fn run_async(&self, cache: &Store) -> Result<()> {
+        let path = NixPath::new(&self.file_path)?;
+        cache.add_closure(&path, 0).await?;
         Ok(())
     }
-}
 
-#[derive(Parser)]
-struct Get {
-    hash_id: String,
-}
-
-impl Get {
-    fn run(&self, cache: &GitStore) -> Result<()> {
-        let result = store_entry::get_as_nar(&cache, &self.hash_id)?;
-        match result {
-            Some(result) => io::stdout()
-                .write_all(&result)
-                .expect("Failed to write result to stdout"),
-            _ => println!("Entry not in cache"),
-        };
-        Ok(())
+    fn run(&self, cache: &Store) -> Result<()> {
+        let rt = Runtime::new()?;
+        rt.block_on(self.run_async(cache))
     }
 }
 
@@ -77,8 +66,8 @@ impl Get {
 struct List {}
 
 impl List {
-    fn run(&self, cache: &GitStore) -> Result<()> {
-        let result = nar_info::list(cache)?;
+    fn run(&self, cache: &Store) -> Result<()> {
+        let result = cache.list_entries();
         result.iter().for_each(|e| println!("{e}"));
         Ok(())
     }
@@ -92,7 +81,7 @@ struct Serve {
     host: String,
 }
 impl Serve {
-    fn run(&self, cache: GitStore) -> Result<()> {
+    fn run(&self, cache: Store) -> Result<()> {
         start_server(&self.host, self.port, cache)?;
         Ok(())
     }

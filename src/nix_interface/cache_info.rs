@@ -11,9 +11,14 @@ impl Display for CacheInfo {
         let keys = ["StoreDir", "WantMassQuery", "Priority"];
         let mass_query = if self.want_mass_query { "1" } else { "0" };
         let values = [&self.store_dir, mass_query, &self.priority.to_string()];
-        for (key, value) in keys.iter().zip(values) {
-            write!(f, "{}: {}\n", key, value)?;
-        }
+        let output = keys
+            .iter()
+            .zip(values)
+            .map(|(k, v)| format!("{}: {}", k, v))
+            .collect::<Vec<String>>()
+            .join("\n");
+
+        f.write_str(&output)?;
         Ok(())
     }
 }

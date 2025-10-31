@@ -16,9 +16,18 @@ anyhow = "1.0.100"
 liblzma = "0.4.5"
 regex = "1.12.2"
 futures = "0.3.31"
-tokio = "1.48.0"
+tokio = {version = "1.48.0", features = ["rt-multi-thread"]}
 bytes = "1.10.1"
+nix-daemon = "0.1.1"
+async-ssh2-lite = {version = "0.5.0", features = ["tokio"]}
+dirs = "6.0.0"
+whoami = "1.6.1"
+nix-nar = "0.3.0"
+lazy_static = "1.5.0"
 
 [dev-dependencies]
 nix-nar = "0.3.0"
 tempfile = "3.23.0"
+rand = { version = "0.8", features = ["alloc"] }
+assert_cmd = "2.1.1"
+reqwest = { version = "0.12.24", features = ["blocking"] }
