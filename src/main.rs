@@ -1,13 +1,13 @@
 use clap::{Parser, Subcommand};
 use std::path::PathBuf;
 mod git_store;
+mod http_server;
 mod nar;
-mod nix_cache_server;
 mod nix_interface;
-use crate::nix_cache_server::start_server;
+use crate::http_server::start_server;
 use crate::nix_interface::path::NixPath;
 use anyhow::Result;
-use git_store::{GitRepo, store_entry::Store};
+use git_store::{GitRepo, store::Store};
 use tokio::runtime::Runtime;
 use tracing::Level;
 use tracing_subscriber::fmt;

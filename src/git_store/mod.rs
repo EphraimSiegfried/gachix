@@ -1,3 +1,3 @@
+pub mod repository;
+pub use repository::GitRepo;
 pub mod store;
-pub use store::GitRepo;
-pub mod store_entry;

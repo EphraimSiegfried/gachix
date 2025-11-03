@@ -1,4 +1,4 @@
-use crate::git_store::store_entry::Store;
+use crate::git_store::store::Store;
 use crate::nix_interface::cache_info;
 use actix_web::{
     App, HttpResponse, HttpServer, Responder, get, head,
