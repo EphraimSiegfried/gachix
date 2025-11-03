@@ -63,20 +63,10 @@ impl GitRepo {
         Ok((oid, filemode))
     }
 
-    pub fn get_blob_from_tree(&self, key: &str, tree_ref: &str) -> Result<Option<Vec<u8>>> {
+    pub fn get_blob(&self, oid: Oid) -> Result<Vec<u8>> {
         let repo = self.repo.read().unwrap();
-        let Some(tree_oid) = self.get_oid_from_reference(tree_ref) else {
-            return Ok(None); // Maybe return error?
-        };
-        let tree = repo.find_tree(tree_oid)?;
-        let Some(tree_entry) = tree.get_name(key) else {
-            return Ok(None);
-        };
-        let object = tree_entry.to_object(&repo)?;
-        let blob = object
-            .into_blob()
-            .map_err(|obj| anyhow!("Object was not a blob: {:?}", obj.kind()))?;
-        Ok(Some(blob.content().to_vec()))
+        let blob = repo.find_blob(oid)?;
+        Ok(blob.content().to_vec())
     }
 
     pub fn add_ref(&self, ref_name: &str, oid: Oid) -> Result<()> {
@@ -139,34 +129,6 @@ impl GitRepo {
             }
         }
         Ok(builder.write()?)
-    }
-
-    pub fn update_tree(&self, name: &str, oid: Oid, mode: i32, tree_ref: &str) -> Result<Oid> {
-        let span = span!(Level::TRACE, "Update Tree", name, tree_ref,);
-        let _guard = span.enter();
-        trace!("Trying to acquire write lock");
-        let repo = self.repo.write().unwrap();
-
-        // Retrieve last tree
-        let tree = repo
-            .find_reference(tree_ref)
-            .ok()
-            .and_then(|r| r.peel_to_tree().ok());
-
-        if tree.is_none() {
-            info!("Using empty tree for {tree_ref}");
-        }
-
-        let mut tree_builder = repo.treebuilder(tree.as_ref())?;
-
-        trace!("Inserting object to tree");
-        tree_builder.insert(name, oid, mode)?;
-        let new_tree_oid = tree_builder.write()?;
-
-        trace!("Updating reference");
-        repo.reference(tree_ref, new_tree_oid, true, "")?;
-
-        Ok(new_tree_oid)
     }
 
     pub fn commit(&self, tree_oid: Oid, parent_oids: &[Oid], comment: Option<&str>) -> Result<Oid> {

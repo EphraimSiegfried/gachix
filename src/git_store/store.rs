@@ -4,15 +4,14 @@ use crate::nix_interface::daemon::NixDaemon;
 use crate::nix_interface::nar_info::NarInfo;
 use crate::nix_interface::path::NixPath;
 use anyhow::{anyhow, bail};
-use git2::FileMode;
 use git2::Oid;
 use tracing::{debug, info, trace};
 
 use crate::git_store::GitRepo;
 
 use anyhow::Result;
-const NARINFO_REF: &str = "refs/NARINFO";
 const PACKGAGE_PREFIX_REF: &str = "refs/packages";
+const NARINFO_PREFIX_REF: &str = "refs/narinfo";
 
 #[derive(Clone)]
 pub struct Store {
@@ -132,11 +131,11 @@ impl Store {
         );
 
         let blob_oid = self.repo.add_file_content(narinfo.to_string().as_bytes())?;
-        self.repo.update_tree(
-            store_path.get_base_32_hash(),
+        self.repo.add_ref(
+            &format!("{}/{}", NARINFO_PREFIX_REF, {
+                store_path.get_base_32_hash()
+            }),
             blob_oid,
-            FileMode::Blob.into(),
-            NARINFO_REF,
         )?;
         Ok(narinfo)
     }
@@ -151,7 +150,13 @@ impl Store {
     }
 
     pub fn get_narinfo(&self, base32_hash: &str) -> Result<Option<Vec<u8>>> {
-        self.repo.get_blob_from_tree(&base32_hash, NARINFO_REF)
+        let result = self
+            .repo
+            .get_oid_from_reference(&format!("{}/{}", NARINFO_PREFIX_REF, base32_hash));
+        match result {
+            Some(oid) => Ok(Some(self.repo.get_blob(oid)?)),
+            None => Ok(None),
+        }
     }
 
     pub fn list_entries(&self) -> Result<Vec<String>> {
