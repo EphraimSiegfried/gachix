@@ -1,6 +1,6 @@
 use crate::nar::NarGitStream;
 use crate::nar::decode::NarGitDecoder;
-use anyhow::{Context, Result, anyhow};
+use anyhow::{Context, Result, anyhow, bail};
 use git2::Signature;
 use git2::Time;
 use git2::{FileMode, Oid, Repository};
@@ -11,7 +11,7 @@ use std::os::unix::ffi::OsStrExt;
 use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 use std::sync::{Arc, RwLock};
-use tracing::{Level, debug, info, span, trace};
+use tracing::{Level, info, span, trace};
 
 pub struct GitRepo {
     repo: Arc<RwLock<Repository>>,
@@ -22,8 +22,16 @@ unsafe impl Send for GitRepo {}
 impl GitRepo {
     pub fn new(path_to_repo: &Path) -> Result<Self, git2::Error> {
         let repo = if path_to_repo.exists() {
+            info!(
+                "Using an existing Git repository at {}",
+                path_to_repo.to_str().unwrap()
+            );
             Repository::open(path_to_repo)?
         } else {
+            info!(
+                "Initializing a new Git repository at {}",
+                path_to_repo.to_str().unwrap()
+            );
             Repository::init(path_to_repo)?
         };
         Ok(Self {
@@ -31,57 +39,32 @@ impl GitRepo {
         })
     }
 
-    pub fn add_file_content(&self, key: &str, content: &[u8], tree_ref: &str) -> Result<Oid> {
-        // return early if entry already exists
-        if let Some(entry) = self.query(&key, tree_ref) {
-            return Ok(entry);
-        }
-
+    pub fn add_file_content(&self, content: &[u8]) -> Result<Oid> {
         let read_repo = self.repo.read().unwrap();
         let blob_oid = read_repo.blob(content)?;
-        drop(read_repo);
-
-        self.update_tree(key, blob_oid, FileMode::Blob.into(), tree_ref)?;
-
         Ok(blob_oid)
     }
 
     #[allow(dead_code)]
-    pub fn add_dir<T: AsRef<Path>>(&self, key: &str, path: &T, tree_ref: &str) -> Result<Oid> {
+    pub fn add_dir<T: AsRef<Path>>(&self, path: &T) -> Result<Oid> {
         let path = path.as_ref();
         if !path.is_dir() {
             return Err(anyhow!("No such directory: {}", path.to_str().unwrap()));
         }
-        if let Some(entry) = self.query(&key, tree_ref) {
-            return Ok(entry);
-        }
         let tree_oid = self.create_tree_from_dir(&path)?;
-        self.update_tree(key, tree_oid, FileMode::Tree.into(), tree_ref)?;
         Ok(tree_oid)
     }
 
-    pub fn add_nar(&self, key: &str, content: impl Read, tree_ref: &str) -> Result<Oid> {
-        let span = span!(Level::TRACE, "Add Nar", key);
-        let _guard = span.enter();
-        // return early if entry already exists
-        if let Some(entry) = self.query(&key, tree_ref) {
-            debug!("Cache Hit");
-            return Ok(entry);
-        }
-
+    pub fn add_nar(&self, content: impl Read) -> Result<(Oid, i32)> {
         let repo = self.repo.read().unwrap();
         let decoder = NarGitDecoder::new(&repo);
-        trace!("Decoding NAR File");
         let (oid, filemode) = decoder
             .parse(content)
             .with_context(|| "Error decoding NAR file")?;
-        drop(repo);
-
-        self.update_tree(key, oid, filemode, tree_ref)?;
-        Ok(oid)
+        Ok((oid, filemode))
     }
 
-    pub fn get_blob(&self, key: &str, tree_ref: &str) -> Result<Option<Vec<u8>>> {
+    pub fn get_blob_from_tree(&self, key: &str, tree_ref: &str) -> Result<Option<Vec<u8>>> {
         let repo = self.repo.read().unwrap();
         let Ok(tree_oid) = self.get_oid_from_reference(tree_ref) else {
             return Ok(None); // Maybe return error?
@@ -97,25 +80,18 @@ impl GitRepo {
         Ok(Some(blob.content().to_vec()))
     }
 
-    pub fn get_tree_as_nar_stream(
-        &self,
-        key: &str,
-        tree_ref: &str,
-    ) -> Result<Option<NarGitStream>> {
+    pub fn get_entry_as_nar(&self, oid: Oid) -> Result<Option<NarGitStream>> {
         let repo = self.repo.read().unwrap();
-        let Ok(tree_oid) = self.get_oid_from_reference(tree_ref) else {
-            return Ok(None);
+        let object = repo.find_object(oid, None)?;
+        let kind = object
+            .kind()
+            .ok_or_else(|| anyhow!("Object with oid {} does not have a type", oid))?;
+        let filemode = match kind {
+            git2::ObjectType::Blob => FileMode::Blob.into(),
+            git2::ObjectType::Tree => FileMode::Tree.into(),
+            _ => bail!("Object must either be a tree or a blob"),
         };
 
-        let tree = repo.find_tree(tree_oid)?;
-        let Some(tree_entry) = tree.get_name(key) else {
-            return Ok(None);
-        };
-
-        let filemode = tree_entry.filemode();
-        let oid = tree_entry.id();
-
-        // let repo_cloned = repo.clone();
         let repo_owned = Arc::clone(&self.repo);
         let stream = NarGitStream::new(repo_owned, oid, filemode);
         Ok(Some(stream))
@@ -162,7 +138,7 @@ impl GitRepo {
         Ok(builder.write()?)
     }
 
-    fn update_tree(&self, name: &str, oid: Oid, mode: i32, tree_ref: &str) -> Result<Oid> {
+    pub fn update_tree(&self, name: &str, oid: Oid, mode: i32, tree_ref: &str) -> Result<Oid> {
         let span = span!(Level::TRACE, "Update Tree", name, tree_ref,);
         let _guard = span.enter();
         trace!("Trying to acquire write lock");
@@ -225,7 +201,8 @@ impl GitRepo {
         Ok(tree_to_commit)
     }
 
-    pub fn query(&self, key: &str, tree_ref: &str) -> Option<Oid> {
+    #[allow(dead_code)]
+    pub fn query_tree(&self, key: &str, tree_ref: &str) -> Option<Oid> {
         let repo = self.repo.read().unwrap();
         let Ok(tree_oid) = self.get_oid_from_reference(tree_ref) else {
             return None;
@@ -253,41 +230,22 @@ impl Clone for GitRepo {
     }
 }
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-    use anyhow::Result;
-    use rand::distributions::{Alphanumeric, DistString};
-    use rand::{self};
-    use std::fs;
-    use std::path::PathBuf;
-    use tempfile::TempDir;
-
-    fn create_random_package(dir: &PathBuf) -> Result<PathBuf> {
-        let mut rng = rand::thread_rng();
-        let random_string = Alphanumeric.sample_string(&mut rng, 5);
-        let package_path = dir.join(&random_string);
-        fs::create_dir(&package_path)?;
-        fs::write(package_path.join("some_file"), random_string)?;
-        Ok(package_path.to_path_buf())
-    }
-
-    #[test]
-    fn test_tree_to_commit_map() -> Result<()> {
-        let temp = TempDir::new()?;
-        let repo_path = temp.path().join("test_repo");
-        let repo = GitRepo::new(&repo_path)?;
-        let t1 = repo.add_dir("1", &create_random_package(&repo_path)?, "refs/some_ref")?;
-        let t2 = repo.add_dir("2", &create_random_package(&repo_path)?, "refs/some_ref")?;
-        let c1 = repo.commit(t1, &[], None)?;
-        let c2 = repo.commit(t2, &[], None)?;
-        let actual = repo.get_tree_to_commit_map()?;
-
-        let mut expected = HashMap::new();
-        expected.insert(t1, c1);
-        expected.insert(t2, c2);
-
-        assert_eq!(expected, actual);
-        Ok(())
-    }
-}
+// #[cfg(test)]
+// mod tests {
+//     use super::*;
+//     use anyhow::Result;
+//     use rand::distributions::{Alphanumeric, DistString};
+//     use rand::{self};
+//     use std::fs;
+//     use std::path::PathBuf;
+//     use tempfile::TempDir;
+//
+//     fn create_random_package(dir: &PathBuf) -> Result<PathBuf> {
+//         let mut rng = rand::thread_rng();
+//         let random_string = Alphanumeric.sample_string(&mut rng, 5);
+//         let package_path = dir.join(&random_string);
+//         fs::create_dir(&package_path)?;
+//         fs::write(package_path.join("some_file"), random_string)?;
+//         Ok(package_path.to_path_buf())
+//     }
+// }
