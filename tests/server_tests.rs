@@ -43,12 +43,12 @@ fn test_package_retrieval() -> Result<()> {
     let base_url = format!("http://localhost:{}", port);
     let repo_path = &temp_path.join("gachix");
 
-    // start the server
-    let _server = common::CacheServer::start(port, &repo_path)?;
-
     // Add some package to the cache
     let store_path = common::build_nix_package("hello")?;
     common::add_to_cache(&store_path, &repo_path)?;
+
+    // start the server
+    let _server = common::CacheServer::start(port, &repo_path)?;
 
     // retrieve nix hash from the nix path
     let nix_hash = Regex::new(r"([0-9a-z]{32})")?
