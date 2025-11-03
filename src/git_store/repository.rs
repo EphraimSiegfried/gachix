@@ -3,8 +3,7 @@ use crate::nar::decode::NarGitDecoder;
 use anyhow::{Context, Result, anyhow, bail};
 use git2::Signature;
 use git2::Time;
-use git2::{FileMode, Oid, Repository};
-use std::collections::HashMap;
+use git2::{ErrorCode, FileMode, Oid, Repository};
 use std::fs;
 use std::io::Read;
 use std::os::unix::ffi::OsStrExt;
@@ -66,7 +65,7 @@ impl GitRepo {
 
     pub fn get_blob_from_tree(&self, key: &str, tree_ref: &str) -> Result<Option<Vec<u8>>> {
         let repo = self.repo.read().unwrap();
-        let Ok(tree_oid) = self.get_oid_from_reference(tree_ref) else {
+        let Some(tree_oid) = self.get_oid_from_reference(tree_ref) else {
             return Ok(None); // Maybe return error?
         };
         let tree = repo.find_tree(tree_oid)?;
@@ -78,6 +77,12 @@ impl GitRepo {
             .into_blob()
             .map_err(|obj| anyhow!("Object was not a blob: {:?}", obj.kind()))?;
         Ok(Some(blob.content().to_vec()))
+    }
+
+    pub fn add_ref(&self, ref_name: &str, oid: Oid) -> Result<()> {
+        let repo = self.repo.read().unwrap();
+        repo.reference(&ref_name, oid, false, "")?;
+        Ok(())
     }
 
     pub fn get_entry_as_nar(&self, oid: Oid) -> Result<Option<NarGitStream>> {
@@ -97,11 +102,9 @@ impl GitRepo {
         Ok(Some(stream))
     }
 
-    pub fn get_oid_from_reference(&self, tree_ref: &str) -> Result<Oid> {
+    pub fn get_oid_from_reference(&self, reference: &str) -> Option<Oid> {
         let repo = self.repo.read().unwrap();
-        let reference = repo.find_reference(tree_ref)?;
-        let tree = reference.peel_to_tree()?;
-        Ok(tree.id())
+        repo.find_reference(reference).ok().and_then(|r| r.target())
     }
 
     fn create_tree_from_dir(&self, path: &Path) -> Result<Oid> {
@@ -167,11 +170,19 @@ impl GitRepo {
     }
 
     pub fn commit(&self, tree_oid: Oid, parent_oids: &[Oid], comment: Option<&str>) -> Result<Oid> {
-        let sig = Signature::new("gachix", "gachix@gachix.com", &Time::new(0, 0))?;
+        let span = span!(Level::TRACE, "Commiting", comment);
+        let _guard = span.enter();
+
         let repo = self.repo.write().unwrap();
+        let sig = Signature::new("gachix", "gachix@gachix.com", &Time::new(0, 0))?;
+
+        trace!("Retrieving main tree object {}", tree_oid);
         let commit_tree = repo.find_tree(tree_oid)?;
+
+        trace!("Collecting commit oids for {} parents", parent_oids.len());
         let mut parents: Vec<git2::Commit<'_>> = Vec::new();
         for oid in parent_oids.iter() {
+            trace!("Retrieving parent commit {}", oid);
             let commit = repo.find_commit(*oid)?;
             parents.push(commit);
         }
@@ -185,40 +196,38 @@ impl GitRepo {
             &commit_tree,
             parents.as_slice(),
         )?;
+        trace!("Commit successful");
         Ok(commit_oid)
     }
 
-    pub fn get_tree_to_commit_map(&self) -> Result<HashMap<Oid, Oid>> {
+    pub fn reference_exists(&self, name: &str) -> Result<bool> {
         let repo = self.repo.read().unwrap();
-        let mut tree_to_commit = HashMap::new();
-        repo.odb()?.foreach(|oid| {
-            if let Ok(commit) = repo.find_commit(oid.clone()) {
-                let tree_oid = commit.tree().unwrap().id();
-                tree_to_commit.insert(tree_oid, oid.clone());
+        match repo.find_reference(name) {
+            Ok(_) => Ok(true),
+            Err(e) => {
+                if e.code() == ErrorCode::NotFound {
+                    Ok(false)
+                } else {
+                    bail!(e)
+                }
             }
-            true
-        })?;
-        Ok(tree_to_commit)
+        }
     }
 
-    #[allow(dead_code)]
-    pub fn query_tree(&self, key: &str, tree_ref: &str) -> Option<Oid> {
+    pub fn list_references(&self, ref_name: &str) -> Result<Vec<String>> {
         let repo = self.repo.read().unwrap();
-        let Ok(tree_oid) = self.get_oid_from_reference(tree_ref) else {
-            return None;
-        };
-        let tree = repo.find_tree(tree_oid).ok()?;
-        tree.get_name(key).map(|entry| entry.id())
-    }
-
-    pub fn list_keys(&self, tree_ref: &str) -> Result<Vec<String>> {
-        let repo = self.repo.read().unwrap();
-        let Ok(tree_oid) = self.get_oid_from_reference(tree_ref) else {
-            return Ok(Vec::new());
-        };
-        let tree = repo.find_tree(tree_oid)?;
-        let keys = tree.iter().map(|e| e.name().unwrap().to_string()).collect();
-        Ok(keys)
+        let refs = repo.references_glob(ref_name)?;
+        let mut refs_names = Vec::new();
+        for reference in refs {
+            let reference = reference?;
+            refs_names.push(
+                reference
+                    .name()
+                    .ok_or_else(|| anyhow!("Could not get name from reference"))?
+                    .to_string(),
+            );
+        }
+        Ok(refs_names)
     }
 }
 

@@ -6,56 +6,35 @@ use crate::nix_interface::path::NixPath;
 use anyhow::{anyhow, bail};
 use git2::FileMode;
 use git2::Oid;
-use nix_base32::from_nix_base32;
-use nix_base32::to_nix_base32;
-use std::collections::HashMap;
-use std::sync::{Arc, RwLock};
 use tracing::{debug, info, trace};
 
 use crate::git_store::GitRepo;
 
 use anyhow::Result;
 const NARINFO_REF: &str = "refs/NARINFO";
-
-// nix_hash -> (tree_oid, commit_oid)
-type Index = HashMap<Vec<u8>, (Oid, Oid)>;
+const PACKGAGE_PREFIX_REF: &str = "refs/packages";
 
 #[derive(Clone)]
 pub struct Store {
     repo: GitRepo,
-    object_index: Arc<RwLock<Index>>,
 }
 
 impl Store {
     pub fn new(repo: GitRepo) -> Result<Self> {
         debug!("Computing Object Index");
-        let tree_to_commit = repo.get_tree_to_commit_map()?;
-        let hash_to_tree = get_hash_to_tree_map(&repo)?;
-        let object_index: HashMap<Vec<u8>, (Oid, Oid)> = hash_to_tree
-            .iter()
-            .map(|(hash, oid)| {
-                let key = hash.clone();
-                let value = (*oid, *tree_to_commit.get(oid).unwrap());
-                (key, value)
-            })
-            .collect();
-        info!("Repository contains {} packages", object_index.len());
-        Ok(Self {
-            repo,
-            object_index: Arc::new(RwLock::new(object_index)),
-        })
+        let entries = repo.list_references("{PACKGAGE_PREFIX_REF}/*")?;
+        info!("Repository contains {} packages", entries.len());
+        Ok(Self { repo })
     }
 
     pub async fn add_closure(&self, store_path: &NixPath, count: usize) -> Result<Oid> {
         if count == 100 {
             bail!("Dependency Depth Limit exceeded");
         }
-        let index = self.object_index.read().unwrap();
-        if let Some((_, commit_oid)) = index.get(&store_path.get_hash_bytes()) {
+        if let Some(commit_oid) = self.get_commit(store_path.get_base_32_hash()) {
             debug!("Package already exists: {}", store_path.get_name());
-            return Ok(*commit_oid);
+            return Ok(commit_oid);
         }
-        drop(index);
 
         let mut nix = NixDaemon::local().await?;
         let (narinfo, tree_oid) = self.try_add_package(&mut nix, store_path).await?;
@@ -71,10 +50,19 @@ impl Store {
             self.repo
                 .commit(tree_oid, &parent_commits, Some(store_path.get_name()))?;
 
-        let mut index = self.object_index.write().unwrap();
-        index.insert(store_path.get_hash_bytes(), (tree_oid, commit_oid));
+        self.repo.add_ref(
+            &format!("{}/{}", PACKGAGE_PREFIX_REF, store_path.get_base_32_hash()),
+            commit_oid,
+        )?;
 
         Ok(commit_oid)
+    }
+
+    pub fn get_commit(&self, hash: &str) -> Option<Oid> {
+        let res = self
+            .repo
+            .get_oid_from_reference(&format!("{}/{}", PACKGAGE_PREFIX_REF, hash));
+        res
     }
 
     async fn try_add_package(
@@ -106,7 +94,7 @@ impl Store {
     async fn add_narinfo(
         &self,
         nix: &mut NixDaemon<impl AsyncStream>,
-        key: &str,
+        package_key: &str,
         store_path: &NixPath,
     ) -> Result<NarInfo> {
         let Some(path_info) = nix.get_pathinfo(&store_path).await? else {
@@ -124,7 +112,7 @@ impl Store {
 
         let narinfo = NarInfo::new(
             store_path.clone(),
-            key.to_string(),
+            package_key.to_string(),
             0,
             None,
             "".to_string(),
@@ -144,10 +132,8 @@ impl Store {
     }
 
     pub fn entry_exists(&self, base32_hash: &str) -> Result<bool> {
-        let index = self.object_index.read().unwrap();
-        let digest =
-            from_nix_base32(base32_hash).ok_or_else(|| anyhow!("Invalid key {}", base32_hash))?;
-        Ok(index.contains_key(&digest))
+        self.repo
+            .reference_exists(&format!("{PACKGAGE_PREFIX_REF}/{base32_hash}"))
     }
 
     pub fn get_as_nar_stream(&self, key: &str) -> Result<Option<NarGitStream>> {
@@ -158,39 +144,20 @@ impl Store {
         self.repo.get_blob_from_tree(&base32_hash, NARINFO_REF)
     }
 
-    pub fn list_entries(&self) -> Vec<String> {
-        let index = self.object_index.read().unwrap();
-        index.keys().map(|k| to_nix_base32(k)).collect()
+    pub fn list_entries(&self) -> Result<Vec<String>> {
+        let entries = self.repo.list_references("{PACKGAGE_PREFIX_REF}/*")?;
+        Ok(entries)
     }
-}
-
-fn get_hash_to_tree_map(repo: &GitRepo) -> Result<HashMap<Vec<u8>, Oid>> {
-    let available_nix_hashes = repo.list_keys(NARINFO_REF)?;
-
-    let mut hash_to_tree = HashMap::new();
-    for base32_hash in available_nix_hashes {
-        let narinfo_bytes = repo.get_blob_from_tree(&base32_hash, NARINFO_REF)?.unwrap();
-        let narinfo_str = String::from_utf8(narinfo_bytes)?;
-        let narinfo = NarInfo::parse(&narinfo_str)?;
-        let hash = from_nix_base32(&base32_hash)
-            .ok_or_else(|| anyhow!("Invalid base 32 hash: {}", base32_hash))?;
-        hash_to_tree.insert(hash, Oid::from_str(&narinfo.key)?);
-    }
-    Ok(hash_to_tree)
 }
 
 #[cfg(test)]
 mod tests {
     use crate::{
-        git_store::{
-            GitRepo,
-            store::{NARINFO_REF, Store, get_hash_to_tree_map},
-        },
+        git_store::{GitRepo, store::Store},
         nix_interface::{daemon::NixDaemon, nar_info::NarInfo, path::NixPath},
     };
     use anyhow::{Result, anyhow};
-    use git2::FileMode;
-    use std::{collections::HashMap, path::Path, process::Command};
+    use std::process::Command;
     use tempfile::TempDir;
 
     fn build_nix_package(package_name: &str) -> Result<NixPath> {
@@ -202,44 +169,6 @@ mod tests {
 
         let path = NixPath::new(&String::from_utf8_lossy(&output.stdout).to_string())?;
         Ok(path)
-    }
-
-    #[test]
-    fn test_hash_tree_hashmap() -> Result<()> {
-        let temp_dir = TempDir::new()?;
-        let repo_path = temp_dir.path().join("gachix");
-        let repo = GitRepo::new(&repo_path)?;
-
-        let packages = vec!["hello", "kitty"];
-        let mut expected = HashMap::new();
-        for pkg in packages {
-            let path = build_nix_package(pkg)?;
-            let package_oid = repo.add_dir(&Path::new("result"))?;
-
-            let narinfo = NarInfo::new(
-                path.clone(),
-                package_oid.to_string(),
-                0,
-                None,
-                "lol".to_string(),
-                0,
-                None,
-                Vec::new(),
-            );
-            let blob_oid = repo.add_file_content(&narinfo.to_string().as_bytes())?;
-
-            repo.update_tree(
-                path.get_base_32_hash(),
-                blob_oid,
-                FileMode::Blob.into(),
-                NARINFO_REF,
-            )?;
-
-            expected.insert(path.get_hash_bytes(), package_oid);
-        }
-        let actual = get_hash_to_tree_map(&repo)?;
-        assert_eq!(actual, expected);
-        Ok(())
     }
 
     #[tokio::test]
@@ -278,7 +207,7 @@ mod tests {
         let mut nix = NixDaemon::local().await?;
         store.add_narinfo(&mut nix, "key", &path).await?;
         let narinfo = store
-            .get_narinfo("key")?
+            .get_narinfo(path.get_base_32_hash())?
             .ok_or_else(|| anyhow!("Could not get narinfo"))?;
         let narinfo = NarInfo::parse(&String::from_utf8_lossy(&narinfo))?;
         assert_eq!(narinfo.store_path, path);

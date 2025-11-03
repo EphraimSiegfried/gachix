@@ -67,7 +67,7 @@ struct List {}
 
 impl List {
     fn run(&self, cache: &Store) -> Result<()> {
-        let result = cache.list_entries();
+        let result = cache.list_entries()?;
         result.iter().for_each(|e| println!("{e}"));
         Ok(())
     }
