@@ -20,14 +20,26 @@
         };
 
         naersk' = pkgs.callPackage naersk { };
-      in
-      {
-        defaultPackage = naersk'.buildPackage {
-          src = ./.;
+
+        cargoConfig = {
           PKG_CONFIG_PATH = "${pkgs.openssl.dev}/lib/pkgconfig";
           OPENSSL_NO_VENDOR = 1;
           OPENSSL_DIR = "${pkgs.openssl.dev}";
           OPENSSL_LIB_DIR = "${pkgs.lib.getLib pkgs.openssl}/lib";
+        };
+      in
+      {
+        defaultPackage =
+          naersk'.buildPackage {
+            src = ./.;
+          }
+          // cargoConfig;
+        devShell = pkgs.mkShell {
+          nativeBuildInputs = with pkgs; [
+            rustc
+            cargo
+          ];
+          env = cargoConfig;
         };
       }
     );
