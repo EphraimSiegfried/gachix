@@ -52,7 +52,7 @@ struct Add {
 impl Add {
     async fn run_async(&self, cache: &Store) -> Result<()> {
         let path = NixPath::new(&self.file_path)?;
-        cache.add_closure(&path, 0).await?;
+        cache.add_closure(&path).await?;
         Ok(())
     }
 

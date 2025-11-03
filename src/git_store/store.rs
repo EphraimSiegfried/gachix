@@ -27,13 +27,20 @@ impl Store {
         Ok(Self { repo })
     }
 
-    pub async fn add_closure(&self, store_path: &NixPath, count: usize) -> Result<Oid> {
+    pub async fn add_closure(&self, store_path: &NixPath) -> Result<()> {
+        info!("Adding closure for {}", store_path.get_name());
+        let (_, num_packages_added) = self._add_closure(store_path, 0).await?;
+        info!("Added {num_packages_added} packages");
+        Ok(())
+    }
+
+    pub async fn _add_closure(&self, store_path: &NixPath, count: usize) -> Result<(Oid, usize)> {
         if count == 100 {
             bail!("Dependency Depth Limit exceeded");
         }
         if let Some(commit_oid) = self.get_commit(store_path.get_base_32_hash()) {
             debug!("Package already exists: {}", store_path.get_name());
-            return Ok(commit_oid);
+            return Ok((commit_oid, 0));
         }
 
         let mut nix = NixDaemon::local().await?;
@@ -42,8 +49,11 @@ impl Store {
 
         let deps = narinfo.get_dependencies();
         let mut parent_commits = Vec::new();
+        let mut total_packages_added = 0;
         for dependency in deps {
-            let dep_coid = Box::pin(self.add_closure(&dependency, count + 1)).await?;
+            let (dep_coid, num_packages_added) =
+                Box::pin(self._add_closure(&dependency, count + 1)).await?;
+            total_packages_added += num_packages_added;
             parent_commits.push(dep_coid);
         }
         let commit_oid =
@@ -55,7 +65,7 @@ impl Store {
             commit_oid,
         )?;
 
-        Ok(commit_oid)
+        Ok((commit_oid, 1 + total_packages_added))
     }
 
     pub fn get_commit(&self, hash: &str) -> Option<Oid> {
@@ -192,7 +202,7 @@ mod tests {
         let store = Store::new(repo)?;
 
         let path = build_nix_package("sl")?;
-        store.add_closure(&path, 0).await?;
+        store.add_closure(&path).await?;
         Ok(())
     }
 
