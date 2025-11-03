@@ -4,6 +4,7 @@ use anyhow::anyhow;
 use git2::{FileMode, Object, ObjectType, Repository};
 use std::io::{self, Write};
 
+#[allow(dead_code)]
 pub struct NarGitEncoder<'a> {
     repo: &'a Repository,
     root_obj: &'a Object<'a>,
@@ -11,6 +12,7 @@ pub struct NarGitEncoder<'a> {
 }
 
 impl<'a> NarGitEncoder<'a> {
+    #[allow(dead_code)]
     pub fn new(repo: &'a Repository, root_obj: &'a Object, root_obj_filemode: i32) -> Self {
         NarGitEncoder {
             repo,
@@ -19,12 +21,14 @@ impl<'a> NarGitEncoder<'a> {
         }
     }
 
+    #[allow(dead_code)]
     pub fn encode(self) -> Result<Vec<u8>> {
         let mut buffer = Vec::new();
         self.encode_into(&mut buffer)?;
         Ok(buffer)
     }
 
+    #[allow(dead_code)]
     pub fn encode_into<W: Write>(&self, mut writer: W) -> Result<()> {
         write_padded(&mut writer, NIX_VERSION_MAGIC)?;
         self._encode_into(&mut writer, self.root_obj, self.root_obj_filemode)?;

@@ -3,7 +3,6 @@ use anyhow::{Result, bail};
 use bytes::Buf;
 use nix_nar::Decoder;
 use regex::Regex;
-use reqwest::blocking::Response;
 use reqwest::blocking::get;
 use tempfile::TempDir;
 

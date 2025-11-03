@@ -1,8 +1,8 @@
 use anyhow::{Result, anyhow, bail};
-use assert_cmd::cargo::cargo_bin;
+use assert_cmd;
 use reqwest;
 use std::path::{Path, PathBuf};
-use std::process::{Child, Command, ExitCode, Stdio};
+use std::process::{Child, Command, Stdio};
 use std::thread::sleep;
 use std::time::Duration;
 
@@ -11,7 +11,7 @@ pub struct CacheServer {
 }
 impl CacheServer {
     pub fn start(port: u16, cache_path: &Path) -> Result<Self> {
-        let mut command = Command::new(cargo_bin!());
+        let mut command = Command::new(assert_cmd::cargo::cargo_bin!());
         let mut child = command
             .arg("--store-path")
             .arg(cache_path)
@@ -77,7 +77,7 @@ pub fn build_nix_package(package_name: &str) -> Result<PathBuf> {
 }
 
 pub fn add_to_cache(store_path: &Path, cache_path: &Path) -> Result<()> {
-    let mut child = Command::new(cargo_bin!())
+    let mut child = Command::new(assert_cmd::cargo::cargo_bin!())
         .arg("--store-path")
         .arg(cache_path)
         .arg("add")

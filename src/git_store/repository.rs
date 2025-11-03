@@ -1,4 +1,3 @@
-use crate::nar::NarGitEncoder;
 use crate::nar::NarGitStream;
 use crate::nar::decode::NarGitDecoder;
 use anyhow::{Context, Result, anyhow};
@@ -7,7 +6,7 @@ use git2::Time;
 use git2::{FileMode, Oid, Repository};
 use std::collections::HashMap;
 use std::fs;
-use std::io::{Read, Write};
+use std::io::Read;
 use std::os::unix::ffi::OsStrExt;
 use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
@@ -47,6 +46,7 @@ impl GitRepo {
         Ok(blob_oid)
     }
 
+    #[allow(dead_code)]
     pub fn add_dir<T: AsRef<Path>>(&self, key: &str, path: &T, tree_ref: &str) -> Result<Oid> {
         let path = path.as_ref();
         if !path.is_dir() {
@@ -95,28 +95,6 @@ impl GitRepo {
             .into_blob()
             .map_err(|obj| anyhow!("Object was not a blob: {:?}", obj.kind()))?;
         Ok(Some(blob.content().to_vec()))
-    }
-
-    pub fn get_tree_as_nar(
-        &self,
-        result: &mut impl Write,
-        key: &str,
-        tree_ref: &str,
-    ) -> Result<Option<()>> {
-        let repo = self.repo.read().unwrap();
-        let Ok(tree_oid) = self.get_oid_from_reference(tree_ref) else {
-            return Ok(None);
-        };
-
-        let tree = repo.find_tree(tree_oid)?;
-        let Some(tree_entry) = tree.get_name(key) else {
-            return Ok(None);
-        };
-
-        let filemode = tree_entry.filemode();
-        let object = tree_entry.to_object(&repo)?;
-        let nar_encoder = NarGitEncoder::new(&repo, &object, filemode);
-        nar_encoder.encode_into(result).map(|r| Some(r))
     }
 
     pub fn get_tree_as_nar_stream(

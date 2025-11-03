@@ -1,4 +1,4 @@
-use anyhow::{Result, anyhow};
+use anyhow::Result;
 use std::{collections::HashMap, fmt::Display};
 
 use crate::nix_interface::path::NixPath;
