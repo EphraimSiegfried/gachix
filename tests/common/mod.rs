@@ -1,5 +1,6 @@
 use anyhow::{Result, anyhow, bail};
 use assert_cmd;
+use regex::Regex;
 use reqwest;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
@@ -100,4 +101,11 @@ pub fn request(url: &str) -> Result<reqwest::blocking::Response> {
         response.status()
     );
     return Ok(response);
+}
+pub fn get_hash(store_path: &Path) -> Result<String> {
+    Ok(Regex::new(r"([0-9a-z]{32})")?
+        .find(store_path.to_str().unwrap())
+        .unwrap()
+        .as_str()
+        .to_string())
 }
