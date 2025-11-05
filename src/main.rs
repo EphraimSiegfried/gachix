@@ -4,6 +4,7 @@ mod git_store;
 mod http_server;
 mod nar;
 mod nix_interface;
+
 use crate::http_server::start_server;
 use crate::nix_interface::path::NixPath;
 use anyhow::Result;
@@ -11,28 +12,33 @@ use git_store::{GitRepo, store::Store};
 use tokio::runtime::Runtime;
 use tracing::Level;
 use tracing_subscriber::fmt;
+mod settings;
 
 fn main() -> Result<()> {
+    let args = Args::parse();
+
+    let settings = settings::load_config(&args.config.unwrap_or("".to_string()))?;
+
     fmt::Subscriber::builder()
         .with_max_level(Level::DEBUG)
         .init();
 
     let args = Args::parse();
-    let repo = GitRepo::new(&args.store_path)?;
+    let repo = GitRepo::new(&settings.store.path)?;
     let cache = Store::new(repo)?;
 
     match args.cmd {
         Command::Add(x) => x.run(&cache)?,
         Command::List(x) => x.run(&cache)?,
-        Command::Serve(x) => x.run(cache)?,
+        Command::Serve(x) => x.run(cache, settings.server)?,
     };
     Ok(())
 }
 
 #[derive(Parser)]
 struct Args {
-    #[clap(short, long, default_value("cache"))]
-    store_path: PathBuf,
+    #[clap(short, long)]
+    config: Option<String>,
     #[command(subcommand)]
     cmd: Command,
 }
@@ -48,7 +54,6 @@ enum Command {
 struct Add {
     file_path: PathBuf,
 }
-
 impl Add {
     async fn run_async(&self, cache: &Store) -> Result<()> {
         let path = NixPath::new(&self.file_path)?;
@@ -64,7 +69,6 @@ impl Add {
 
 #[derive(Parser)]
 struct List {}
-
 impl List {
     fn run(&self, cache: &Store) -> Result<()> {
         let result = cache.list_entries()?;
@@ -74,15 +78,10 @@ impl List {
 }
 
 #[derive(Parser)]
-struct Serve {
-    #[clap(long, default_value("8080"))]
-    port: u16,
-    #[clap(long, default_value("localhost"))]
-    host: String,
-}
+struct Serve {}
 impl Serve {
-    fn run(&self, cache: Store) -> Result<()> {
-        start_server(&self.host, self.port, cache)?;
+    fn run(&self, cache: Store, server_settings: settings::Server) -> Result<()> {
+        start_server(&server_settings.host, server_settings.port, cache)?;
         Ok(())
     }
 }

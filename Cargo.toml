@@ -24,6 +24,8 @@ dirs = "6.0.0"
 whoami = "1.6.1"
 nix-nar = "0.3.0"
 lazy_static = "1.5.0"
+config = "0.15.18"
+serde = "1.0.228"
 
 [dev-dependencies]
 nix-nar = "0.3.0"

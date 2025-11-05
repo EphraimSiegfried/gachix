@@ -14,11 +14,9 @@ impl CacheServer {
     pub fn start(port: u16, cache_path: &Path) -> Result<Self> {
         let mut command = Command::new(assert_cmd::cargo::cargo_bin!());
         let mut child = command
-            .arg("--store-path")
-            .arg(cache_path)
+            .env("GACHIX_STORE_PATH", cache_path)
+            .env("GACHIX_SERVER_PORT", port.to_string())
             .arg("serve")
-            .arg("--port")
-            .arg(port.to_string())
             .stdout(Stdio::null())
             .spawn()
             .map_err(|e| anyhow!("Failed to start server: {}", e))?;
@@ -79,8 +77,7 @@ pub fn build_nix_package(package_name: &str) -> Result<PathBuf> {
 
 pub fn add_to_cache(store_path: &Path, cache_path: &Path) -> Result<()> {
     let mut child = Command::new(assert_cmd::cargo::cargo_bin!())
-        .arg("--store-path")
-        .arg(cache_path)
+        .env("GACHIX_STORE_PATH", cache_path)
         .arg("add")
         .arg(store_path)
         .stdout(Stdio::null())
