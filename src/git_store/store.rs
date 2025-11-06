@@ -17,16 +17,22 @@ const NARINFO_PREFIX_REF: &str = "refs/narinfo";
 pub struct Store {
     repo: GitRepo,
     remote_builders: Vec<String>,
+    git_remotes: Vec<String>,
 }
 
 impl Store {
-    pub fn new(repo: GitRepo, remote_builders: Vec<String>) -> Result<Self> {
+    pub fn new(
+        repo: GitRepo,
+        remote_builders: Vec<String>,
+        git_remotes: Vec<String>,
+    ) -> Result<Self> {
         debug!("Computing Object Index");
         let entries = repo.list_references("{PACKGAGE_PREFIX_REF}/*")?;
         info!("Repository contains {} packages", entries.len());
         Ok(Self {
             repo,
             remote_builders,
+            git_remotes,
         })
     }
 
@@ -221,7 +227,7 @@ mod tests {
         let temp_dir = TempDir::new()?;
         let repo_path = temp_dir.path().join("gachix");
         let repo = GitRepo::new(&repo_path)?;
-        let store = Store::new(repo, vec![])?;
+        let store = Store::new(repo, vec![], vec![])?;
 
         let path = build_nix_package("hello")?;
         let mut nix = NixDaemon::local().await?;
@@ -234,7 +240,7 @@ mod tests {
         let temp_dir = TempDir::new()?;
         let repo_path = temp_dir.path().join("gachix");
         let repo = GitRepo::new(&repo_path)?;
-        let store = Store::new(repo, vec![])?;
+        let store = Store::new(repo, vec![], vec![])?;
 
         let path = build_nix_package("sl")?;
         store.add_closure(&path).await?;
@@ -246,7 +252,7 @@ mod tests {
         let temp_dir = TempDir::new()?;
         let repo_path = temp_dir.path().join("gachix");
         let repo = GitRepo::new(&repo_path)?;
-        let store = Store::new(repo, vec![])?;
+        let store = Store::new(repo, vec![], vec![])?;
 
         let path = build_nix_package("kitty")?;
         let mut nix = NixDaemon::local().await?;

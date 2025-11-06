@@ -13,6 +13,7 @@ pub struct Server {
 pub struct Store {
     pub path: PathBuf,
     pub builders: Vec<String>,
+    pub remotes: Vec<String>,
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -26,6 +27,7 @@ pub fn load_config(config_file: &str) -> Result<Settings, ConfigError> {
 store:
     path: ./cache
     builders: []
+    remotes: []
 
 server:
     host: localhost

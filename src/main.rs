@@ -25,7 +25,7 @@ fn main() -> Result<()> {
 
     let args = Args::parse();
     let repo = GitRepo::new(&settings.store.path)?;
-    let cache = Store::new(repo, settings.store.builders)?;
+    let cache = Store::new(repo, settings.store.builders, settings.store.remotes)?;
 
     match args.cmd {
         Command::Add(x) => x.run(&cache)?,
