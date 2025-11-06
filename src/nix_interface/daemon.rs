@@ -6,8 +6,9 @@ use async_ssh2_lite::{AsyncChannel, AsyncSession, TokioTcpStream};
 use nix_daemon::{BuildMode, ClientSettings, Progress, Store, nix::DaemonStore};
 use nix_daemon::{BuildResult, PathInfo};
 use nix_nar::Encoder;
+use std::net::ToSocketAddrs;
 use tokio::io::{AsyncReadExt, AsyncWrite, AsyncWriteExt};
-use tokio::net::{ToSocketAddrs, UnixStream};
+use tokio::net::UnixStream;
 
 use crate::nix_interface::path::NixPath;
 
@@ -27,12 +28,15 @@ impl NixDaemon<UnixStream> {
     }
 }
 impl NixDaemon<AsyncChannel<TokioTcpStream>> {
-    pub async fn remote(addr: &impl ToSocketAddrs) -> Result<Self> {
+    pub async fn remote(host: &str, port: u16) -> Result<Self> {
+        let addr = (host, port)
+            .to_socket_addrs()?
+            .next()
+            .ok_or(anyhow!("Failed to resolve address"))?;
         let stream = TokioTcpStream::connect(addr).await?;
         let mut session = AsyncSession::new(stream, None)?;
         session.handshake().await?;
 
-        // TODO: Adjust this and make it more generic (try to use nix-ssh as user)
         let home = dirs::home_dir().ok_or(anyhow!("Home directory not found"))?;
         let key = home.join(".ssh").join("id_ed25519");
         let user = whoami::username();
@@ -89,17 +93,11 @@ mod tests {
     use nix_daemon::BuildResultStatus;
     use rand;
     use std::io::Write;
-    use std::net::ToSocketAddrs;
     use std::process::Stdio;
 
     #[tokio::test]
-    #[ignore]
     async fn test_connect_remote() -> Result<()> {
-        let addr = ("192.168.1.122", 22)
-            .to_socket_addrs()?
-            .next()
-            .ok_or(anyhow!("Failed to resolve address"))?;
-        let mut nix = NixDaemon::remote(&addr).await?;
+        let mut nix = NixDaemon::remote("blinkybill", 22).await?;
         dbg!(
             nix.get_pathinfo(&NixPath::new(
                 "/nix/store/h0b3pxg56bh5lnh4bqrb2gsrbkdzmpsh-kitty-0.43.1"
@@ -112,7 +110,6 @@ mod tests {
     #[tokio::test]
     async fn test_local_build_package() -> Result<()> {
         let mut nix = NixDaemon::local().await?;
-
         let drv_path = create_random_derivation().await?;
         let drv_path = NixPath::new(&drv_path)?;
 

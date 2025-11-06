@@ -5,7 +5,7 @@ use crate::nix_interface::nar_info::NarInfo;
 use crate::nix_interface::path::NixPath;
 use anyhow::{anyhow, bail};
 use git2::Oid;
-use tracing::{debug, info, trace};
+use tracing::{debug, info, trace, warn};
 
 use crate::git_store::GitRepo;
 
@@ -16,14 +16,44 @@ const NARINFO_PREFIX_REF: &str = "refs/narinfo";
 #[derive(Clone)]
 pub struct Store {
     repo: GitRepo,
+    remote_builders: Vec<String>,
 }
 
 impl Store {
-    pub fn new(repo: GitRepo) -> Result<Self> {
+    pub fn new(repo: GitRepo, remote_builders: Vec<String>) -> Result<Self> {
         debug!("Computing Object Index");
         let entries = repo.list_references("{PACKGAGE_PREFIX_REF}/*")?;
         info!("Repository contains {} packages", entries.len());
-        Ok(Self { repo })
+        Ok(Self {
+            repo,
+            remote_builders,
+        })
+    }
+
+    pub async fn remote_health_check(&self) -> bool {
+        let mut success = true;
+
+        match NixDaemon::local().await {
+            Ok(_) => info!("Succesfully connected to local Nix daemon"),
+            Err(e) => {
+                success = false;
+                warn!("Failed to connect to remote local daemon: {}", e)
+            }
+        }
+
+        for host_name in &self.remote_builders {
+            match NixDaemon::remote(host_name, 22).await {
+                Ok(_) => info!("Succesfully connected to Nix daemon at {host_name}"),
+                Err(e) => {
+                    success = false;
+                    warn!(
+                        "Failed to connect to remote Nix daemon at {host_name}: {}",
+                        e
+                    )
+                }
+            };
+        }
+        success
     }
 
     pub async fn add_closure(&self, store_path: &NixPath) -> Result<()> {
@@ -191,7 +221,7 @@ mod tests {
         let temp_dir = TempDir::new()?;
         let repo_path = temp_dir.path().join("gachix");
         let repo = GitRepo::new(&repo_path)?;
-        let store = Store::new(repo)?;
+        let store = Store::new(repo, vec![])?;
 
         let path = build_nix_package("hello")?;
         let mut nix = NixDaemon::local().await?;
@@ -204,7 +234,7 @@ mod tests {
         let temp_dir = TempDir::new()?;
         let repo_path = temp_dir.path().join("gachix");
         let repo = GitRepo::new(&repo_path)?;
-        let store = Store::new(repo)?;
+        let store = Store::new(repo, vec![])?;
 
         let path = build_nix_package("sl")?;
         store.add_closure(&path).await?;
@@ -216,7 +246,7 @@ mod tests {
         let temp_dir = TempDir::new()?;
         let repo_path = temp_dir.path().join("gachix");
         let repo = GitRepo::new(&repo_path)?;
-        let store = Store::new(repo)?;
+        let store = Store::new(repo, vec![])?;
 
         let path = build_nix_package("kitty")?;
         let mut nix = NixDaemon::local().await?;

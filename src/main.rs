@@ -25,7 +25,7 @@ fn main() -> Result<()> {
 
     let args = Args::parse();
     let repo = GitRepo::new(&settings.store.path)?;
-    let cache = Store::new(repo)?;
+    let cache = Store::new(repo, settings.store.builders)?;
 
     match args.cmd {
         Command::Add(x) => x.run(&cache)?,
@@ -57,6 +57,7 @@ struct Add {
 impl Add {
     async fn run_async(&self, cache: &Store) -> Result<()> {
         let path = NixPath::new(&self.file_path)?;
+        cache.remote_health_check().await;
         cache.add_closure(&path).await?;
         Ok(())
     }
