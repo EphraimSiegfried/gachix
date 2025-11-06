@@ -6,7 +6,6 @@ use git2::RemoteCallbacks;
 use git2::Signature;
 use git2::Time;
 use git2::{ErrorCode, FileMode, Oid, Repository};
-use reqwest::ResponseBuilderExt;
 use std::fs;
 use std::io::Read;
 use std::os::unix::ffi::OsStrExt;
@@ -195,13 +194,13 @@ impl GitRepo {
         Ok(refs_names)
     }
 
-    pub fn add_remote(&self, url: &str) -> Result<()> {
+    pub fn register_remote(&self, url: &str) -> Result<()> {
         let repo = self.repo.read().unwrap();
         repo.remote(url, url)?;
         Ok(())
     }
 
-    pub fn check_remote_path(&self, url: &str) -> Result<()> {
+    pub fn check_remote_health(&self, url: &str) -> Result<()> {
         let repo = self.repo.read().unwrap();
         let mut remote = repo.find_remote(url)?;
         let callbacks = RemoteCallbacks::new();
