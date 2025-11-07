@@ -1,0 +1,7 @@
+store:
+  path: ./peer_cache
+  builders: []
+  remotes: [./cache]
+server:
+  host: localhost
+  port: 8080

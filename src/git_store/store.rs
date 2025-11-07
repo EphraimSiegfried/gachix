@@ -36,14 +36,14 @@ impl Store {
         })
     }
 
-    pub async fn remote_health_check(&self) -> bool {
+    pub async fn peer_health_check(&self) -> bool {
         let mut success = true;
 
         match NixDaemon::local().await {
             Ok(_) => info!("Succesfully connected to local Nix daemon"),
             Err(e) => {
                 success = false;
-                warn!("Failed to connect to remote local daemon: {}", e)
+                warn!("Failed to connect to remote local daemon: {e}")
             }
         }
 
@@ -52,13 +52,21 @@ impl Store {
                 Ok(_) => info!("Succesfully connected to Nix daemon at {host_name}"),
                 Err(e) => {
                     success = false;
-                    warn!(
-                        "Failed to connect to remote Nix daemon at {host_name}: {}",
-                        e
-                    )
+                    warn!("Failed to connect to remote Nix daemon at {host_name}: {e}",)
                 }
             };
         }
+
+        for git_remote in &self.git_remotes {
+            match self.repo.check_remote_health(&git_remote) {
+                Ok(_) => info!("Succesfully connected to Git repository at {git_remote}"),
+                Err(e) => {
+                    success = false;
+                    warn!("Failed to connect to git repository {git_remote}: {e}")
+                }
+            }
+        }
+
         success
     }
 
@@ -108,6 +116,20 @@ impl Store {
             .repo
             .get_oid_from_reference(&format!("{}/{}", PACKGAGE_PREFIX_REF, hash));
         res
+    }
+
+    async fn add_package(&self, store_path: &NixPath) -> Result<Option<Oid>> {
+        let package_id = store_path.get_base_32_hash();
+
+        let narinfo_ref = format!("{NARINFO_PREFIX_REF}/{package_id}");
+        let mut commit_oid = None;
+        for remote in &self.git_remotes {
+            if let Some(oid) = self.repo.fetch(&remote, &narinfo_ref)? {
+                commit_oid = Some(oid);
+                break;
+            }
+        }
+        Ok(commit_oid)
     }
 
     async fn try_add_package(

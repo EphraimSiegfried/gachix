@@ -194,15 +194,9 @@ impl GitRepo {
         Ok(refs_names)
     }
 
-    pub fn register_remote(&self, url: &str) -> Result<()> {
-        let repo = self.repo.read().unwrap();
-        repo.remote(url, url)?;
-        Ok(())
-    }
-
     pub fn check_remote_health(&self, url: &str) -> Result<()> {
         let repo = self.repo.read().unwrap();
-        let mut remote = repo.find_remote(url)?;
+        let mut remote = repo.remote_anonymous(url)?;
         let callbacks = RemoteCallbacks::new();
         match remote.connect_auth(Direction::Fetch, Some(callbacks), None) {
             Ok(connection) => {
@@ -211,6 +205,28 @@ impl GitRepo {
             }
             Err(e) => {
                 bail!("Connection failed: {}", e);
+            }
+        }
+    }
+
+    pub fn fetch(&self, url: &str, reference: &str) -> Result<Option<Oid>> {
+        let repo = self.repo.read().unwrap();
+        let mut remote = repo.remote_anonymous(url)?;
+        let refspec = format!("{}:{}", reference, reference);
+        remote.fetch(&vec![refspec], None, None)?;
+        match repo.find_reference(reference) {
+            Ok(local_ref) => {
+                let oid = local_ref.target().ok_or_else(|| {
+                    anyhow!("Could not find object pointed by reference {reference}")
+                })?;
+                return Ok(Some(oid));
+            }
+            Err(e) => {
+                if e.code() == git2::ErrorCode::NotFound {
+                    return Ok(None);
+                } else {
+                    bail!("Reference not found: {e}")
+                }
             }
         }
     }
