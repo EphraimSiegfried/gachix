@@ -10,8 +10,6 @@ use tracing::{debug, info, trace, warn};
 use crate::git_store::GitRepo;
 
 use anyhow::Result;
-const PACKGAGE_PREFIX_REF: &str = "refs/packages";
-const NARINFO_PREFIX_REF: &str = "refs/narinfo";
 
 #[derive(Clone)]
 pub struct Store {
@@ -104,7 +102,7 @@ impl Store {
                 .commit(tree_oid, &parent_commits, Some(store_path.get_name()))?;
 
         self.repo.add_ref(
-            &format!("{}/{}", PACKGAGE_PREFIX_REF, store_path.get_base_32_hash()),
+            &self.get_package_ref(&store_path.get_base_32_hash()),
             commit_oid,
         )?;
 
@@ -114,14 +112,22 @@ impl Store {
     pub fn get_commit(&self, hash: &str) -> Option<Oid> {
         let res = self
             .repo
-            .get_oid_from_reference(&format!("{}/{}", PACKGAGE_PREFIX_REF, hash));
+            .get_oid_from_reference(&self.get_package_ref(hash));
         res
+    }
+
+    fn get_package_ref(&self, hash: &str) -> String {
+        return format!("refs/{hash}/package");
+    }
+
+    fn get_narinfo_ref(&self, hash: &str) -> String {
+        return format!("refs/{hash}/narinfo");
     }
 
     async fn add_package(&self, store_path: &NixPath) -> Result<Option<Oid>> {
         let package_id = store_path.get_base_32_hash();
 
-        let narinfo_ref = format!("{NARINFO_PREFIX_REF}/{package_id}");
+        let narinfo_ref = self.get_narinfo_ref(package_id);
         let mut commit_oid = None;
         for remote in &self.git_remotes {
             if let Some(oid) = self.repo.fetch(&remote, &narinfo_ref)? {
@@ -190,9 +196,7 @@ impl Store {
 
         let blob_oid = self.repo.add_file_content(narinfo.to_string().as_bytes())?;
         self.repo.add_ref(
-            &format!("{}/{}", NARINFO_PREFIX_REF, {
-                store_path.get_base_32_hash()
-            }),
+            &self.get_narinfo_ref(store_path.get_base_32_hash()),
             blob_oid,
         )?;
         Ok(narinfo)
@@ -200,7 +204,7 @@ impl Store {
 
     pub fn entry_exists(&self, base32_hash: &str) -> Result<bool> {
         self.repo
-            .reference_exists(&format!("{PACKGAGE_PREFIX_REF}/{base32_hash}"))
+            .reference_exists(&self.get_package_ref(base32_hash))
     }
 
     pub fn get_as_nar_stream(&self, key: &str) -> Result<Option<NarGitStream>> {
@@ -210,7 +214,7 @@ impl Store {
     pub fn get_narinfo(&self, base32_hash: &str) -> Result<Option<Vec<u8>>> {
         let result = self
             .repo
-            .get_oid_from_reference(&format!("{}/{}", NARINFO_PREFIX_REF, base32_hash));
+            .get_oid_from_reference(&self.get_narinfo_ref(base32_hash));
         match result {
             Some(oid) => Ok(Some(self.repo.get_blob(oid)?)),
             None => Ok(None),
