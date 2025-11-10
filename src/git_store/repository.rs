@@ -2,6 +2,7 @@ use crate::nar::NarGitStream;
 use crate::nar::decode::NarGitDecoder;
 use anyhow::{Context, Result, anyhow, bail};
 use git2::Direction;
+use git2::FetchOptions;
 use git2::RemoteCallbacks;
 use git2::Signature;
 use git2::Time;
@@ -35,6 +36,8 @@ impl GitRepo {
             );
             Repository::init(path_to_repo)?
         };
+        let mut config = repo.config()?;
+        config.set_str("protocol.version", "2")?;
         Ok(Self {
             repo: RwLock::new(repo).into(),
         })
@@ -74,6 +77,12 @@ impl GitRepo {
     pub fn add_ref(&self, ref_name: &str, oid: Oid) -> Result<()> {
         let repo = self.repo.read().unwrap();
         repo.reference(&ref_name, oid, false, "")?;
+        Ok(())
+    }
+
+    pub fn add_symbolic_ref(&self, ref_name: &str, target: &str) -> Result<()> {
+        let repo = self.repo.read().unwrap();
+        repo.reference_symbolic(&ref_name, target, false, "")?;
         Ok(())
     }
 
@@ -209,26 +218,18 @@ impl GitRepo {
         }
     }
 
-    pub fn fetch(&self, url: &str, reference: &str) -> Result<Option<Oid>> {
+    pub fn fetch(&self, url: &str, reference: &str) -> Result<Option<()>> {
         let repo = self.repo.read().unwrap();
         let mut remote = repo.remote_anonymous(url)?;
-        let refspec = format!("{}:{}", reference, reference);
-        remote.fetch(&vec![refspec], None, None)?;
-        match repo.find_reference(reference) {
-            Ok(local_ref) => {
-                let oid = local_ref.target().ok_or_else(|| {
-                    anyhow!("Could not find object pointed by reference {reference}")
-                })?;
-                return Ok(Some(oid));
-            }
-            Err(e) => {
-                if e.code() == git2::ErrorCode::NotFound {
-                    return Ok(None);
-                } else {
-                    bail!("Reference not found: {e}")
-                }
-            }
+        let refspec = format!("+{}:{}", reference, reference);
+        let mut options = FetchOptions::new();
+        options.download_tags(git2::AutotagOption::All);
+        remote.fetch(&vec![refspec], Some(&mut options), None)?;
+        dbg!(remote.stats().received_objects());
+        if remote.stats().received_objects() == 0 {
+            return Ok(None);
         }
+        Ok(Some(()))
     }
 }
 

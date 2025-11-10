@@ -60,7 +60,7 @@ impl Store {
                 Ok(_) => info!("Succesfully connected to Git repository at {git_remote}"),
                 Err(e) => {
                     success = false;
-                    warn!("Failed to connect to git repository {git_remote}: {e}")
+                    warn!("Failed to connect to Git repository {git_remote}: {e}")
                 }
             }
         }
@@ -76,11 +76,20 @@ impl Store {
     }
 
     pub async fn _add_closure(&self, store_path: &NixPath, count: usize) -> Result<(Oid, usize)> {
+        info!("Adding package: {}", store_path.get_name());
         if count == 100 {
             bail!("Dependency Depth Limit exceeded");
         }
-        if let Some(commit_oid) = self.get_commit(store_path.get_base_32_hash()) {
+        let package_id = store_path.get_base_32_hash();
+        if let Some(commit_oid) = self.get_commit(package_id) {
             debug!("Package already exists: {}", store_path.get_name());
+            return Ok((commit_oid, 0));
+        }
+        if let Some(commit_oid) = self.add_package_from_git_remotes(store_path)? {
+            debug!(
+                "Package retrieved from remote Git peer: {}",
+                store_path.get_name()
+            );
             return Ok((commit_oid, 0));
         }
 
@@ -91,7 +100,7 @@ impl Store {
         let deps = narinfo.get_dependencies();
         let mut parent_commits = Vec::new();
         let mut total_packages_added = 0;
-        for dependency in deps {
+        for dependency in &deps {
             let (dep_coid, num_packages_added) =
                 Box::pin(self._add_closure(&dependency, count + 1)).await?;
             total_packages_added += num_packages_added;
@@ -101,41 +110,61 @@ impl Store {
             self.repo
                 .commit(tree_oid, &parent_commits, Some(store_path.get_name()))?;
 
-        self.repo.add_ref(
-            &self.get_package_ref(&store_path.get_base_32_hash()),
-            commit_oid,
-        )?;
+        self.repo
+            .add_ref(&self.get_result_ref(package_id), commit_oid)?;
+        for dependency in deps {
+            // TODO: is there a prettier solution? we can't point to a namespace unfortunately,
+            // only to reference objects
+            let dep_id = dependency.get_base_32_hash();
+            let dep_result_ref = format!("{}/result", self.get_dep_ref(package_id, dep_id));
+            let target = self.get_result_ref(dep_id);
+            self.repo.add_symbolic_ref(&dep_result_ref, &target)?;
+            let dep_narinfo_ref = format!("{}/narinfo", self.get_dep_ref(package_id, dep_id));
+            let target = self.get_narinfo_ref(dep_id);
+            self.repo.add_symbolic_ref(&dep_narinfo_ref, &target)?;
+        }
 
         Ok((commit_oid, 1 + total_packages_added))
     }
 
     pub fn get_commit(&self, hash: &str) -> Option<Oid> {
-        let res = self
-            .repo
-            .get_oid_from_reference(&self.get_package_ref(hash));
+        let res = self.repo.get_oid_from_reference(&self.get_result_ref(hash));
         res
     }
 
     fn get_package_ref(&self, hash: &str) -> String {
-        return format!("refs/{hash}/package");
+        format!("refs/{hash}")
+    }
+
+    fn get_result_ref(&self, hash: &str) -> String {
+        format!("{}/result", self.get_package_ref(hash))
     }
 
     fn get_narinfo_ref(&self, hash: &str) -> String {
-        return format!("refs/{hash}/narinfo");
+        format!("{}/narinfo", self.get_package_ref(hash))
     }
 
-    async fn add_package(&self, store_path: &NixPath) -> Result<Option<Oid>> {
-        let package_id = store_path.get_base_32_hash();
+    fn get_dep_ref(&self, main_hash: &str, dep_hash: &str) -> String {
+        format!("{}/deps/{}", self.get_package_ref(main_hash), dep_hash)
+    }
 
-        let narinfo_ref = self.get_narinfo_ref(package_id);
-        let mut commit_oid = None;
+    fn add_package_from_git_remotes(&self, store_path: &NixPath) -> Result<Option<Oid>> {
+        let package_id = store_path.get_base_32_hash();
         for remote in &self.git_remotes {
-            if let Some(oid) = self.repo.fetch(&remote, &narinfo_ref)? {
-                commit_oid = Some(oid);
-                break;
+            if let Some(()) = self
+                .repo
+                .fetch(&remote, &format!("{}/*", self.get_package_ref(package_id)))?
+            {
+                let oid = self
+                    .repo
+                    .get_oid_from_reference(&self.get_result_ref(package_id))
+                    .ok_or_else(|| {
+                        anyhow!("Could not get commit id for {}", store_path.get_name())
+                    })?;
+                return Ok(Some(oid));
             }
         }
-        Ok(commit_oid)
+        Ok(None)
     }
 
     async fn try_add_package(
@@ -143,7 +172,6 @@ impl Store {
         nix: &mut NixDaemon<impl AsyncStream>,
         store_path: &NixPath,
     ) -> Result<(NarInfo, Oid)> {
-        info!("Adding package: {}", store_path.get_name());
         let path_exists = nix.path_exists(&store_path).await?;
         if !path_exists {
             // TODO: try to build package if it does not exist
@@ -204,7 +232,7 @@ impl Store {
 
     pub fn entry_exists(&self, base32_hash: &str) -> Result<bool> {
         self.repo
-            .reference_exists(&self.get_package_ref(base32_hash))
+            .reference_exists(&self.get_result_ref(base32_hash))
     }
 
     pub fn get_as_nar_stream(&self, key: &str) -> Result<Option<NarGitStream>> {
