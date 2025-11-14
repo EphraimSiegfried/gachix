@@ -1,10 +1,15 @@
+use std::collections::HashSet;
+use std::collections::VecDeque;
+
 use crate::nar::NarGitStream;
 use crate::nix_interface::daemon::AsyncStream;
 use crate::nix_interface::daemon::NixDaemon;
 use crate::nix_interface::nar_info::NarInfo;
 use crate::nix_interface::path::NixPath;
+use crate::settings;
 use anyhow::{anyhow, bail};
 use git2::Oid;
+use tracing::instrument;
 use tracing::{debug, info, trace, warn};
 
 use crate::git_store::GitRepo;
@@ -13,25 +18,16 @@ use anyhow::Result;
 
 #[derive(Clone)]
 pub struct Store {
+    settings: settings::Store,
     repo: GitRepo,
-    remote_builders: Vec<String>,
-    git_remotes: Vec<String>,
 }
 
 impl Store {
-    pub fn new(
-        repo: GitRepo,
-        remote_builders: Vec<String>,
-        git_remotes: Vec<String>,
-    ) -> Result<Self> {
-        debug!("Computing Object Index");
+    pub fn new(settings: settings::Store) -> Result<Self> {
+        let repo = GitRepo::new(&settings.path)?;
         let entries = repo.list_references("{PACKGAGE_PREFIX_REF}/*")?;
         info!("Repository contains {} packages", entries.len());
-        Ok(Self {
-            repo,
-            remote_builders,
-            git_remotes,
-        })
+        Ok(Self { settings, repo })
     }
 
     pub async fn peer_health_check(&self) -> bool {
@@ -45,7 +41,7 @@ impl Store {
             }
         }
 
-        for host_name in &self.remote_builders {
+        for host_name in &self.settings.builders {
             match NixDaemon::remote(host_name, 22).await {
                 Ok(_) => info!("Succesfully connected to Nix daemon at {host_name}"),
                 Err(e) => {
@@ -55,7 +51,7 @@ impl Store {
             };
         }
 
-        for git_remote in &self.git_remotes {
+        for git_remote in &self.settings.remotes {
             match self.repo.check_remote_health(&git_remote) {
                 Ok(_) => info!("Succesfully connected to Git repository at {git_remote}"),
                 Err(e) => {
@@ -112,24 +108,11 @@ impl Store {
 
         self.repo
             .add_ref(&self.get_result_ref(package_id), commit_oid)?;
-        for dependency in deps {
-            // TODO: is there a prettier solution? we can't point to a namespace unfortunately,
-            // only to reference objects
-            let dep_id = dependency.get_base_32_hash();
-            let dep_result_ref = format!("{}/result", self.get_dep_ref(package_id, dep_id));
-            let target = self.get_result_ref(dep_id);
-            self.repo.add_symbolic_ref(&dep_result_ref, &target)?;
-            let dep_narinfo_ref = format!("{}/narinfo", self.get_dep_ref(package_id, dep_id));
-            let target = self.get_narinfo_ref(dep_id);
-            self.repo.add_symbolic_ref(&dep_narinfo_ref, &target)?;
-        }
-
         Ok((commit_oid, 1 + total_packages_added))
     }
 
     pub fn get_commit(&self, hash: &str) -> Option<Oid> {
-        let res = self.repo.get_oid_from_reference(&self.get_result_ref(hash));
-        res
+        self.repo.get_oid_from_reference(&self.get_result_ref(hash))
     }
 
     fn get_package_ref(&self, hash: &str) -> String {
@@ -144,27 +127,71 @@ impl Store {
         format!("{}/narinfo", self.get_package_ref(hash))
     }
 
-    fn get_dep_ref(&self, main_hash: &str, dep_hash: &str) -> String {
-        format!("{}/deps/{}", self.get_package_ref(main_hash), dep_hash)
-    }
-
     fn add_package_from_git_remotes(&self, store_path: &NixPath) -> Result<Option<Oid>> {
         let package_id = store_path.get_base_32_hash();
-        for remote in &self.git_remotes {
-            if let Some(()) = self
-                .repo
-                .fetch(&remote, &format!("{}/*", self.get_package_ref(package_id)))?
-            {
-                let oid = self
-                    .repo
-                    .get_oid_from_reference(&self.get_result_ref(package_id))
-                    .ok_or_else(|| {
-                        anyhow!("Could not get commit id for {}", store_path.get_name())
-                    })?;
-                return Ok(Some(oid));
+        let mut commit_oid = None;
+        let mut success_remote = "";
+        for remote in &self.settings.remotes {
+            if let Some(oid) = self.add_package_from_remote(package_id, remote)? {
+                commit_oid = Some(oid);
+                success_remote = &remote;
+                break;
             }
         }
+        if commit_oid == None {
+            return Ok(None);
+        }
+
+        let mut open = VecDeque::new();
+        let mut visited = HashSet::new();
+        open.push_back(package_id.to_string());
+        visited.insert(package_id.to_string());
+        while let Some(id) = open.pop_front() {
+            for dep in self.get_dep_ids(&id)? {
+                if !visited.contains(&dep) {
+                    if !(self.repo.reference_exists(&self.get_result_ref(&dep))?
+                        && self.repo.reference_exists(&self.get_narinfo_ref(&dep))?)
+                    {
+                        self.add_package_from_remote(&dep, success_remote)?;
+                    }
+                    // TODO: do I need to add to open queue if references already exist?
+                    open.push_back(dep.clone());
+                    visited.insert(dep.clone());
+                }
+            }
+        }
+
+        Ok(commit_oid)
+    }
+
+    fn add_package_from_remote(&self, package_id: &str, remote: &str) -> Result<Option<Oid>> {
+        if let Some(()) = self
+            .repo
+            .fetch(&remote, &format!("{}/*", self.get_package_ref(package_id)))?
+        {
+            let oid = self
+                .repo
+                .get_oid_from_reference(&self.get_result_ref(package_id))
+                .ok_or_else(|| anyhow!("Could not get commit id for {}", package_id))?;
+            return Ok(Some(oid));
+        }
         Ok(None)
+    }
+
+    fn get_dep_ids(&self, package_id: &str) -> Result<Vec<String>> {
+        let narinfo_ref = self.get_narinfo_ref(package_id);
+        let narinfo_oid = self
+            .repo
+            .get_oid_from_reference(&narinfo_ref)
+            .ok_or_else(|| anyhow!("Could not find narinfo from reference {}", narinfo_ref))?;
+        let narinfo_blob = self.repo.get_blob(narinfo_oid)?;
+        let narinfo = NarInfo::parse(&String::from_utf8_lossy(&narinfo_blob).to_string())?;
+        let dependencies = narinfo.get_dependencies();
+        let ids = dependencies
+            .iter()
+            .map(|d| d.get_base_32_hash().to_string())
+            .collect::<Vec<String>>();
+        Ok(ids)
     }
 
     async fn try_add_package(
@@ -192,6 +219,7 @@ impl Store {
         Ok((narinfo, entry_oid))
     }
 
+    #[instrument(skip(self, nix))]
     async fn add_narinfo(
         &self,
         nix: &mut NixDaemon<impl AsyncStream>,
@@ -222,6 +250,7 @@ impl Store {
             refs_result?,
         );
 
+        debug!("Adding narinfo");
         let blob_oid = self.repo.add_file_content(narinfo.to_string().as_bytes())?;
         self.repo.add_ref(
             &self.get_narinfo_ref(store_path.get_base_32_hash()),
@@ -260,8 +289,10 @@ mod tests {
     use crate::{
         git_store::{GitRepo, store::Store},
         nix_interface::{daemon::NixDaemon, nar_info::NarInfo, path::NixPath},
+        settings,
     };
     use anyhow::{Result, anyhow};
+    use std::path::PathBuf;
     use std::process::Command;
     use tempfile::TempDir;
 
@@ -276,12 +307,20 @@ mod tests {
         Ok(path)
     }
 
+    pub fn set_repo_path(path: &PathBuf) -> settings::Store {
+        settings::Store {
+            path: path.clone(),
+            builders: vec![],
+            remotes: vec![],
+            use_local_nix_daemon: true,
+        }
+    }
+
     #[tokio::test]
     async fn test_add_package() -> Result<()> {
         let temp_dir = TempDir::new()?;
         let repo_path = temp_dir.path().join("gachix");
-        let repo = GitRepo::new(&repo_path)?;
-        let store = Store::new(repo, vec![], vec![])?;
+        let store = Store::new(set_repo_path(&repo_path))?;
 
         let path = build_nix_package("hello")?;
         let mut nix = NixDaemon::local().await?;
@@ -293,8 +332,7 @@ mod tests {
     async fn test_add_closure() -> Result<()> {
         let temp_dir = TempDir::new()?;
         let repo_path = temp_dir.path().join("gachix");
-        let repo = GitRepo::new(&repo_path)?;
-        let store = Store::new(repo, vec![], vec![])?;
+        let store = Store::new(set_repo_path(&repo_path))?;
 
         let path = build_nix_package("sl")?;
         store.add_closure(&path).await?;
@@ -305,8 +343,7 @@ mod tests {
     async fn test_add_narinfo() -> Result<()> {
         let temp_dir = TempDir::new()?;
         let repo_path = temp_dir.path().join("gachix");
-        let repo = GitRepo::new(&repo_path)?;
-        let store = Store::new(repo, vec![], vec![])?;
+        let store = Store::new(set_repo_path(&repo_path))?;
 
         let path = build_nix_package("kitty")?;
         let mut nix = NixDaemon::local().await?;

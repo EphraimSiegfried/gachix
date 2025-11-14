@@ -8,7 +8,7 @@ mod nix_interface;
 use crate::http_server::start_server;
 use crate::nix_interface::path::NixPath;
 use anyhow::Result;
-use git_store::{GitRepo, store::Store};
+use git_store::store::Store;
 use tokio::runtime::Runtime;
 use tracing::Level;
 use tracing_subscriber::fmt;
@@ -24,8 +24,7 @@ fn main() -> Result<()> {
         .init();
 
     let args = Args::parse();
-    let repo = GitRepo::new(&settings.store.path)?;
-    let cache = Store::new(repo, settings.store.builders, settings.store.remotes)?;
+    let cache = Store::new(settings.store)?;
 
     match args.cmd {
         Command::Add(x) => x.run(&cache)?,

@@ -1,19 +1,22 @@
 use crate::nar::NarGitStream;
 use crate::nar::decode::NarGitDecoder;
 use anyhow::{Context, Result, anyhow, bail};
+use git2::Cred;
 use git2::Direction;
 use git2::FetchOptions;
 use git2::RemoteCallbacks;
 use git2::Signature;
 use git2::Time;
 use git2::{ErrorCode, FileMode, Oid, Repository};
+use std::env;
 use std::fs;
 use std::io::Read;
 use std::os::unix::ffi::OsStrExt;
 use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 use std::sync::{Arc, RwLock};
-use tracing::{Level, info, span, trace};
+use tracing::field::debug;
+use tracing::{Level, debug, info, instrument, span, trace};
 
 pub struct GitRepo {
     repo: Arc<RwLock<Repository>>,
@@ -105,13 +108,13 @@ impl GitRepo {
 
     pub fn get_oid_from_reference(&self, reference: &str) -> Option<Oid> {
         let repo = self.repo.read().unwrap();
-        repo.find_reference(reference).ok().and_then(|r| r.target())
+        let res = repo.find_reference(reference).ok().and_then(|r| r.target());
+        res
     }
 
     fn create_tree_from_dir(&self, path: &Path) -> Result<Oid> {
         let repo = self.repo.read().unwrap();
         let mut builder = repo.treebuilder(None)?;
-
         for entry in path.read_dir()? {
             let entry_path = entry?.path();
             let entry_file_name = entry_path
@@ -218,17 +221,45 @@ impl GitRepo {
         }
     }
 
+    #[instrument(skip(self))]
     pub fn fetch(&self, url: &str, reference: &str) -> Result<Option<()>> {
         let repo = self.repo.read().unwrap();
-        let mut remote = repo.remote_anonymous(url)?;
-        let refspec = format!("+{}:{}", reference, reference);
-        let mut options = FetchOptions::new();
-        options.download_tags(git2::AutotagOption::All);
-        remote.fetch(&vec![refspec], Some(&mut options), None)?;
-        dbg!(remote.stats().received_objects());
+        let mut remote = match repo.find_remote("peer") {
+            Ok(remote) => remote,
+            _ => repo.remote_with_fetch("peer", url, "")?,
+        };
+        let refspec = format!("{}:{}", reference, reference);
+
+        debug!("Fetching from remote");
+        let mut fetch_options = FetchOptions::new();
+        let mut callbacks = RemoteCallbacks::new();
+        callbacks.update_tips(|r, _, _| {
+            debug!("Added reference {r}");
+            true
+        });
+        callbacks.credentials(|_url, _user_from_url, _allowed_types| {
+            let user = env::var("USER").unwrap();
+            if _allowed_types.contains(git2::CredentialType::USERNAME) {
+                return git2::Cred::username(&user);
+            }
+            Cred::ssh_key(
+                &env::var("USER").unwrap(),
+                None,
+                std::path::Path::new(&format!("{}/.ssh/id_ed25519", env::var("HOME").unwrap())),
+                None,
+            )
+        });
+        fetch_options.remote_callbacks(callbacks);
+        fetch_options.download_tags(git2::AutotagOption::None);
+        fetch_options.update_fetchhead(false);
+        remote.fetch(&vec![refspec], Some(&mut fetch_options), None)?;
+
         if remote.stats().received_objects() == 0 {
+            debug!("Did not receive anything");
             return Ok(None);
         }
+        debug!("Received {} objects", remote.stats().received_objects());
+
         Ok(Some(()))
     }
 }

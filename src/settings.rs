@@ -14,6 +14,7 @@ pub struct Store {
     pub path: PathBuf,
     pub builders: Vec<String>,
     pub remotes: Vec<String>,
+    pub use_local_nix_daemon: bool,
 }
 
 #[derive(Debug, Deserialize, Clone)]
@@ -28,6 +29,7 @@ store:
     path: ./cache
     builders: []
     remotes: []
+    use_local_nix_daemon: true
 
 server:
     host: localhost
@@ -36,7 +38,13 @@ server:
     let settings = Config::builder()
         .add_source(File::from_str(defaults, config::FileFormat::Yaml).required(true))
         .add_source(File::with_name(config_file).required(false))
-        .add_source(Environment::with_prefix("GACHIX").separator("_"))
+        .add_source(
+            Environment::with_prefix("GACHIX")
+                .separator("_")
+                .list_separator(",")
+                .with_list_parse_key("store.remotes")
+                .try_parsing(true),
+        )
         .build()?;
     settings.try_deserialize()
 }

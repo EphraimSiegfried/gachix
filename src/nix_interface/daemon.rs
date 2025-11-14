@@ -98,12 +98,11 @@ mod tests {
     #[tokio::test]
     async fn test_connect_remote() -> Result<()> {
         let mut nix = NixDaemon::remote("blinkybill", 22).await?;
-        dbg!(
-            nix.get_pathinfo(&NixPath::new(
-                "/nix/store/h0b3pxg56bh5lnh4bqrb2gsrbkdzmpsh-kitty-0.43.1"
-            )?)
-            .await?
-        );
+
+        nix.get_pathinfo(&NixPath::new(
+            "/nix/store/h0b3pxg56bh5lnh4bqrb2gsrbkdzmpsh-kitty-0.43.1",
+        )?)
+        .await?;
         Ok(())
     }
 
