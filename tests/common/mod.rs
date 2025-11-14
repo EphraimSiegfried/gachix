@@ -1,7 +1,9 @@
 use anyhow::{Result, anyhow, bail};
 use assert_cmd;
+use clap::builder::OsStr;
 use regex::Regex;
 use reqwest;
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::process::{Child, Command, Stdio};
 use std::thread::sleep;
@@ -75,13 +77,22 @@ pub fn build_nix_package(package_name: &str) -> Result<PathBuf> {
     Ok(PathBuf::from(path))
 }
 
-pub fn add_to_cache(store_path: &Path, cache_path: &Path) -> Result<()> {
-    let mut child = Command::new(assert_cmd::cargo::cargo_bin!())
+pub fn add_to_cache(
+    store_path: &Path,
+    cache_path: &Path,
+    config: Option<HashMap<&str, &str>>,
+) -> Result<()> {
+    let mut cmd = Command::new(assert_cmd::cargo::cargo_bin!());
+    let process = cmd
+        .env_clear()
         .env("GACHIX_STORE_PATH", cache_path)
         .arg("add")
         .arg(store_path)
-        .stdout(Stdio::null())
-        .spawn()?;
+        .stdout(Stdio::null());
+    if let Some(config) = config {
+        process.envs(config);
+    }
+    let mut child = process.spawn()?;
     let status = child.wait()?;
     if !status.success() {
         bail!("Failed to add path to cache");

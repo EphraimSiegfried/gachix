@@ -44,7 +44,7 @@ fn test_head_request() -> Result<()> {
     let repo_path = &temp_path.join("gachix");
 
     let store_path = common::build_nix_package("hello")?;
-    common::add_to_cache(&store_path, &repo_path)?;
+    common::add_to_cache(&store_path, &repo_path, None)?;
     let nix_hash = common::get_hash(&store_path)?;
 
     let _server = common::CacheServer::start(port, &repo_path)?;
@@ -78,7 +78,7 @@ fn test_narinfo_request() -> Result<()> {
     let repo_path = &temp_path.join("gachix");
 
     let store_path = common::build_nix_package("hello")?;
-    common::add_to_cache(&store_path, &repo_path)?;
+    common::add_to_cache(&store_path, &repo_path, None)?;
     let nix_hash = common::get_hash(&store_path)?;
 
     let _server = common::CacheServer::start(port, &temp_path.join("gachix"))?;
@@ -125,7 +125,7 @@ fn test_package_retrieval() -> Result<()> {
 
     // Add some package to the cache
     let store_path = common::build_nix_package("hello")?;
-    common::add_to_cache(&store_path, &repo_path)?;
+    common::add_to_cache(&store_path, &repo_path, None)?;
 
     // start the server
     let _server = common::CacheServer::start(port, &repo_path)?;
