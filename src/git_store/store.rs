@@ -1,18 +1,18 @@
 use std::collections::HashSet;
 use std::collections::VecDeque;
 
+use crate::git_store::GitRepo;
 use crate::nar::NarGitStream;
 use crate::nix_interface::daemon::AsyncStream;
 use crate::nix_interface::daemon::NixDaemon;
 use crate::nix_interface::nar_info::NarInfo;
 use crate::nix_interface::path::NixPath;
 use crate::settings;
-use anyhow::{anyhow, bail};
+use anyhow::anyhow;
+use async_recursion::async_recursion;
 use git2::Oid;
 use tracing::instrument;
 use tracing::{debug, info, trace, warn};
-
-use crate::git_store::GitRepo;
 
 use anyhow::Result;
 
@@ -25,7 +25,7 @@ pub struct Store {
 impl Store {
     pub fn new(settings: settings::Store) -> Result<Self> {
         let repo = GitRepo::new(&settings.path)?;
-        let entries = repo.list_references("{PACKGAGE_PREFIX_REF}/*")?;
+        let entries = repo.list_references("refs/*")?;
         info!("Repository contains {} packages", entries.len());
         Ok(Self { settings, repo })
     }
@@ -66,16 +66,14 @@ impl Store {
 
     pub async fn add_closure(&self, store_path: &NixPath) -> Result<()> {
         info!("Adding closure for {}", store_path.get_name());
-        let (_, num_packages_added) = self._add_closure(store_path, 0).await?;
+        let (_, num_packages_added) = self._add_closure(store_path).await?;
         info!("Added {num_packages_added} packages");
         Ok(())
     }
 
-    pub async fn _add_closure(&self, store_path: &NixPath, count: usize) -> Result<(Oid, usize)> {
+    #[async_recursion]
+    pub async fn _add_closure(&self, store_path: &NixPath) -> Result<(Oid, usize)> {
         info!("Adding package: {}", store_path.get_name());
-        if count == 100 {
-            bail!("Dependency Depth Limit exceeded");
-        }
         let package_id = store_path.get_base_32_hash();
         if let Some(commit_oid) = self.get_commit(package_id) {
             debug!("Package already exists: {}", store_path.get_name());
@@ -97,8 +95,7 @@ impl Store {
         let mut parent_commits = Vec::new();
         let mut total_packages_added = 0;
         for dependency in &deps {
-            let (dep_coid, num_packages_added) =
-                Box::pin(self._add_closure(&dependency, count + 1)).await?;
+            let (dep_coid, num_packages_added) = self._add_closure(&dependency).await?;
             total_packages_added += num_packages_added;
             parent_commits.push(dep_coid);
         }

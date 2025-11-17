@@ -1,6 +1,5 @@
 use anyhow::{Result, anyhow, bail};
 use assert_cmd;
-use clap::builder::OsStr;
 use regex::Regex;
 use reqwest;
 use std::collections::HashMap;

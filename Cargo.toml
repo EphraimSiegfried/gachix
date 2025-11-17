@@ -26,6 +26,7 @@ nix-nar = "0.3.0"
 lazy_static = "1.5.0"
 config = "0.15.18"
 serde = "1.0.228"
+async-recursion = "1.1.1"
 
 [dev-dependencies]
 nix-nar = "0.3.0"
