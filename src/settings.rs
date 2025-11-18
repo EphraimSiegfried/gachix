@@ -40,7 +40,7 @@ server:
         .add_source(File::with_name(config_file).required(false))
         .add_source(
             Environment::with_prefix("GACHIX")
-                .separator("_")
+                .separator("__")
                 .list_separator(",")
                 .with_list_parse_key("store.remotes")
                 .try_parsing(true),

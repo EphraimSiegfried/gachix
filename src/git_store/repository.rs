@@ -82,12 +82,6 @@ impl GitRepo {
         Ok(())
     }
 
-    pub fn add_symbolic_ref(&self, ref_name: &str, target: &str) -> Result<()> {
-        let repo = self.repo.read().unwrap();
-        repo.reference_symbolic(&ref_name, target, false, "")?;
-        Ok(())
-    }
-
     pub fn get_entry_as_nar(&self, oid: Oid) -> Result<Option<NarGitStream>> {
         let repo = self.repo.read().unwrap();
         let object = repo.find_object(oid, None)?;

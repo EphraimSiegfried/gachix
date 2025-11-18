@@ -15,8 +15,8 @@ impl CacheServer {
     pub fn start(port: u16, cache_path: &Path) -> Result<Self> {
         let mut command = Command::new(assert_cmd::cargo::cargo_bin!());
         let mut child = command
-            .env("GACHIX_STORE_PATH", cache_path)
-            .env("GACHIX_SERVER_PORT", port.to_string())
+            .env("GACHIX__STORE__PATH", cache_path)
+            .env("GACHIX__SERVER__PORT", port.to_string())
             .arg("serve")
             .stdout(Stdio::null())
             .spawn()
@@ -84,7 +84,7 @@ pub fn add_to_cache(
     let mut cmd = Command::new(assert_cmd::cargo::cargo_bin!());
     let process = cmd
         .env_clear()
-        .env("GACHIX_STORE_PATH", cache_path)
+        .env("GACHIX__STORE__PATH", cache_path)
         .arg("add")
         .arg(store_path)
         .stdout(Stdio::null());

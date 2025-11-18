@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 use std::io::Read;
 
-use anyhow::{Result, anyhow};
+use anyhow::{Result, anyhow, bail};
 use async_ssh2_lite::{AsyncChannel, AsyncSession, TokioTcpStream};
 use nix_daemon::{BuildMode, ClientSettings, Progress, Store, nix::DaemonStore};
 use nix_daemon::{BuildResult, PathInfo};
@@ -16,20 +16,33 @@ pub trait AsyncStream: AsyncWriteExt + AsyncReadExt + Unpin + Unpin + Send {}
 impl<T> AsyncStream for T where T: AsyncWriteExt + AsyncReadExt + AsyncWrite + Unpin + Send {}
 
 pub struct NixDaemon<C: AsyncStream> {
-    store: DaemonStore<C>,
+    daemon: Option<DaemonStore<C>>,
+    address: String,
 }
 
 impl NixDaemon<UnixStream> {
-    pub async fn local() -> Result<Self> {
-        let store = DaemonStore::builder()
-            .connect_unix("/nix/var/nix/daemon-socket/socket")
-            .await?;
-        Ok(Self { store })
+    pub fn local() -> Self {
+        Self {
+            daemon: None,
+            address: "/nix/var/nix/daemon-socket/socket".to_string(),
+        }
+    }
+    pub async fn connect(&mut self) -> Result<()> {
+        let store = DaemonStore::builder().connect_unix(&self.address).await?;
+        self.daemon = Some(store);
+        Ok(())
     }
 }
 impl NixDaemon<AsyncChannel<TokioTcpStream>> {
-    pub async fn remote(host: &str, port: u16) -> Result<Self> {
-        let addr = (host, port)
+    pub fn remote(address: &str) -> Self {
+        Self {
+            daemon: None,
+            address: address.to_string(),
+        }
+    }
+
+    pub async fn connect(&mut self) -> Result<()> {
+        let addr = (self.address.as_str(), 22)
             .to_socket_addrs()?
             .next()
             .ok_or(anyhow!("Failed to resolve address"))?;
@@ -49,26 +62,31 @@ impl NixDaemon<AsyncChannel<TokioTcpStream>> {
         }
         let mut channel = session.channel_session().await?;
         channel.exec("nix daemon --stdio").await?;
-        let store = DaemonStore::builder().init(channel).await?;
-        Ok(Self { store })
+        self.daemon = Some(DaemonStore::builder().init(channel).await?);
+        Ok(())
     }
 }
 
 impl<C: AsyncStream> NixDaemon<C> {
     pub async fn get_pathinfo(&mut self, path: &NixPath) -> Result<Option<PathInfo>> {
-        let path_info = self.store.query_pathinfo(path).result().await?;
+        let Some(daemon) = &mut self.daemon else {
+            bail!("Not connected to Nix Daemon")
+        };
+        let path_info = daemon.query_pathinfo(path).result().await?;
         Ok(path_info)
     }
 
     pub async fn build(&mut self, drv_paths: &[&NixPath]) -> Result<HashMap<String, BuildResult>> {
-        self.store.set_options(ClientSettings {
+        let Some(daemon) = &mut self.daemon else {
+            bail!("Not connected to Nix Daemon")
+        };
+        daemon.set_options(ClientSettings {
             try_fallback: true,
             use_substitutes: false,
             ..ClientSettings::default()
         });
         let out_drv_paths = drv_paths.iter().map(|p| format!("{}!out", p));
-        let result = self
-            .store
+        let result = daemon
             .build_paths_with_results(out_drv_paths, BuildMode::Normal)
             .result()
             .await?;
@@ -76,13 +94,80 @@ impl<C: AsyncStream> NixDaemon<C> {
     }
 
     pub async fn path_exists(&mut self, store_path: &NixPath) -> Result<bool> {
-        let exists = self.store.is_valid_path(store_path).result().await?;
+        let Some(daemon) = &mut self.daemon else {
+            bail!("Not connected to Nix Daemon")
+        };
+        let exists = daemon.is_valid_path(store_path).result().await?;
         Ok(exists)
     }
 
-    pub fn fetch(&self, store_path: &NixPath) -> Result<impl Read> {
-        let enc = Encoder::new(&store_path)?;
-        Ok(enc)
+    pub fn fetch(&self, store_path: &NixPath) -> Result<Box<dyn Read + Send>> {
+        let enc = Encoder::new(store_path)?;
+        Ok(Box::new(enc))
+    }
+
+    pub fn get_address(&self) -> String {
+        self.address.clone()
+    }
+
+    pub fn disconnect(mut self) {
+        self.daemon = None;
+    }
+}
+
+pub enum DynNixDaemon {
+    Local(NixDaemon<UnixStream>),
+    Remote(NixDaemon<AsyncChannel<TokioTcpStream>>),
+}
+
+impl DynNixDaemon {
+    pub async fn connect(&mut self) -> Result<()> {
+        match self {
+            DynNixDaemon::Local(daemon) => daemon.connect().await,
+            DynNixDaemon::Remote(daemon) => daemon.connect().await,
+        }
+    }
+
+    pub async fn get_pathinfo(&mut self, path: &NixPath) -> Result<Option<PathInfo>> {
+        match self {
+            DynNixDaemon::Local(daemon) => daemon.get_pathinfo(path).await,
+            DynNixDaemon::Remote(daemon) => daemon.get_pathinfo(path).await,
+        }
+    }
+
+    pub async fn build(&mut self, drv_paths: &[&NixPath]) -> Result<HashMap<String, BuildResult>> {
+        match self {
+            DynNixDaemon::Local(daemon) => daemon.build(drv_paths).await,
+            DynNixDaemon::Remote(daemon) => daemon.build(drv_paths).await,
+        }
+    }
+
+    pub async fn path_exists(&mut self, store_path: &NixPath) -> Result<bool> {
+        match self {
+            DynNixDaemon::Local(daemon) => daemon.path_exists(store_path).await,
+            DynNixDaemon::Remote(daemon) => daemon.path_exists(store_path).await,
+        }
+    }
+
+    pub fn fetch(&self, store_path: &NixPath) -> Result<Box<dyn Read + Send>> {
+        match self {
+            DynNixDaemon::Local(daemon) => daemon.fetch(store_path),
+            DynNixDaemon::Remote(daemon) => daemon.fetch(store_path),
+        }
+    }
+
+    pub fn disconnect(self) {
+        match self {
+            DynNixDaemon::Local(daemon) => daemon.disconnect(),
+            DynNixDaemon::Remote(daemon) => daemon.disconnect(),
+        }
+    }
+
+    pub fn get_address(&self) -> String {
+        match self {
+            DynNixDaemon::Local(daemon) => daemon.get_address(),
+            DynNixDaemon::Remote(daemon) => daemon.get_address(),
+        }
     }
 }
 
@@ -97,7 +182,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_connect_remote() -> Result<()> {
-        let mut nix = NixDaemon::remote("blinkybill", 22).await?;
+        let mut nix = NixDaemon::remote("blinkybill");
+        nix.connect().await?;
 
         nix.get_pathinfo(&NixPath::new(
             "/nix/store/h0b3pxg56bh5lnh4bqrb2gsrbkdzmpsh-kitty-0.43.1",
@@ -108,7 +194,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_local_build_package() -> Result<()> {
-        let mut nix = NixDaemon::local().await?;
+        let mut nix = NixDaemon::local();
+        nix.connect().await?;
         let drv_path = create_random_derivation().await?;
         let drv_path = NixPath::new(&drv_path)?;
 

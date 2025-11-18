@@ -4,6 +4,7 @@ use actix_web::{
     App, HttpResponse, HttpServer, Responder, get, head,
     web::{Data, Path},
 };
+use tracing::error;
 use tracing_actix_web::TracingLogger;
 
 #[get("/nix-cache-info")]
@@ -20,7 +21,10 @@ async fn get_narinfo(cache: Data<Store>, path: Path<String>) -> impl Responder {
     match res {
         Ok(Some(nar_info)) => HttpResponse::Ok().body(nar_info),
         Ok(None) => HttpResponse::NotFound().body("Entry is not in the Cache"),
-        _ => HttpResponse::InternalServerError().body("Server error while fetching narinfo entry"),
+        Err(e) => {
+            error!("Error while fetching NarInfo: {e}");
+            HttpResponse::InternalServerError().body("Server error while fetching narinfo entry")
+        }
     }
 }
 
@@ -38,7 +42,10 @@ async fn get_nar(cache: Data<Store>, path: Path<String>) -> impl Responder {
     match cache.get_as_nar_stream(&hash) {
         Ok(Some(nar_stream)) => HttpResponse::Ok().streaming(nar_stream),
         Ok(None) => HttpResponse::NotFound().body("Entry is not in the Cache"),
-        _ => HttpResponse::InternalServerError().body("Server error while fetching entry"),
+        Err(e) => {
+            error!("Error while fetching Nar: {e}");
+            HttpResponse::InternalServerError().body("Server error while fetching entry")
+        }
     }
 }
 
