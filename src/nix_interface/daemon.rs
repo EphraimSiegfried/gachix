@@ -1,14 +1,15 @@
 use std::collections::HashMap;
-use std::io::Read;
+use std::io::{BufReader, Read};
 
 use anyhow::{Result, anyhow, bail};
 use async_ssh2_lite::{AsyncChannel, AsyncSession, TokioTcpStream};
+use futures::io;
 use nix_daemon::{BuildMode, ClientSettings, Progress, Store, nix::DaemonStore};
 use nix_daemon::{BuildResult, PathInfo};
-use nix_nar::Encoder;
 use std::net::ToSocketAddrs;
 use tokio::io::{AsyncReadExt, AsyncWrite, AsyncWriteExt};
 use tokio::net::UnixStream;
+use tokio_util::io::SyncIoBridge;
 
 use crate::nix_interface::path::NixPath;
 
@@ -101,11 +102,31 @@ impl<C: AsyncStream> NixDaemon<C> {
         Ok(exists)
     }
 
-    pub fn fetch(&self, store_path: &NixPath) -> Result<Box<dyn Read + Send>> {
-        let enc = Encoder::new(store_path)?;
-        Ok(Box::new(enc))
-    }
+    pub async fn fetch<F, R>(&mut self, store_path: &NixPath, parser: F) -> Result<R>
+    where
+        R: Send + Sync + 'static,
+        F: for<'a> FnOnce(&'a mut dyn Read) -> Result<R> + Send + Sync + 'static,
+    {
+        let Some(daemon) = &mut self.daemon else {
+            bail!("Not connected to Nix Daemon")
+        };
 
+        let progress = daemon.nar_from_path(store_path, |reader| {
+            Box::pin(async move {
+                tokio::task::block_in_place(|| {
+                    let sync_reader = SyncIoBridge::new(reader);
+                    let mut buf_reader = BufReader::new(sync_reader);
+                    let val = parser(&mut buf_reader)
+                        .map_err(|e| io::Error::new(io::ErrorKind::Other, e))?;
+                    Ok(val)
+                })
+            })
+        });
+
+        let val = progress.result().await?;
+
+        Ok(val)
+    }
     pub fn get_address(&self) -> String {
         self.address.clone()
     }
@@ -149,10 +170,14 @@ impl DynNixDaemon {
         }
     }
 
-    pub fn fetch(&self, store_path: &NixPath) -> Result<Box<dyn Read + Send>> {
+    pub async fn fetch<F, R>(&mut self, store_path: &NixPath, parser: F) -> Result<R>
+    where
+        R: Send + Sync + 'static,
+        F: for<'a> FnOnce(&'a mut dyn Read) -> Result<R> + Send + Sync + 'static,
+    {
         match self {
-            DynNixDaemon::Local(daemon) => daemon.fetch(store_path),
-            DynNixDaemon::Remote(daemon) => daemon.fetch(store_path),
+            DynNixDaemon::Local(daemon) => daemon.fetch(store_path, parser).await,
+            DynNixDaemon::Remote(daemon) => daemon.fetch(store_path, parser).await,
         }
     }
 

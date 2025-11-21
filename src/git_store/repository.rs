@@ -202,7 +202,19 @@ impl GitRepo {
     pub fn check_remote_health(&self, url: &str) -> Result<()> {
         let repo = self.repo.read().unwrap();
         let mut remote = repo.remote_anonymous(url)?;
-        let callbacks = RemoteCallbacks::new();
+        let mut callbacks = RemoteCallbacks::new();
+        callbacks.credentials(|_url, _user_from_url, _allowed_types| {
+            let user = env::var("USER").unwrap();
+            if _allowed_types.contains(git2::CredentialType::USERNAME) {
+                return git2::Cred::username(&user);
+            }
+            Cred::ssh_key(
+                &env::var("USER").unwrap(),
+                None,
+                std::path::Path::new(&format!("{}/.ssh/id_ed25519", env::var("HOME").unwrap())),
+                None,
+            )
+        });
         match remote.connect_auth(Direction::Fetch, Some(callbacks), None) {
             Ok(connection) => {
                 connection.list()?;
@@ -223,11 +235,11 @@ impl GitRepo {
         };
         let refspec = format!("{}:{}", reference, reference);
 
-        debug!("Fetching from remote");
+        trace!("Fetching from remote");
         let mut fetch_options = FetchOptions::new();
         let mut callbacks = RemoteCallbacks::new();
         callbacks.update_tips(|r, _, _| {
-            debug!("Added reference {r}");
+            trace!("Added reference {r}");
             true
         });
         callbacks.credentials(|_url, _user_from_url, _allowed_types| {
@@ -248,10 +260,10 @@ impl GitRepo {
         remote.fetch(&vec![refspec], Some(&mut fetch_options), None)?;
 
         if remote.stats().received_objects() == 0 {
-            debug!("Did not receive anything");
+            trace!("Did not receive anything");
             return Ok(None);
         }
-        debug!("Received {} objects", remote.stats().received_objects());
+        trace!("Received {} objects", remote.stats().received_objects());
 
         Ok(Some(()))
     }
