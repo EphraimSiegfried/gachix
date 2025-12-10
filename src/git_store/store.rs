@@ -82,6 +82,29 @@ impl Store {
         success
     }
 
+    pub async fn add_single(&self, package_path: &NixPath) -> Result<()> {
+        info!("Adding single package {}", package_path.get_name());
+        let package_id = package_path.get_base_32_hash();
+
+        let narinfo_ref = self.get_narinfo_ref(package_id);
+
+        if self.repo.reference_exists(&narinfo_ref)? {
+            debug!("Package already exists");
+            return Ok(());
+        }
+
+        let Ok(Some((_, narinfo_blob_oid, _))) =
+            self.get_package_from_nix_daemons(package_path).await
+        else {
+            bail!(
+                "There doesn't exist a Nix daemon which has {}",
+                package_path
+            );
+        };
+        self.repo.add_ref(&narinfo_ref, narinfo_blob_oid)?;
+        Ok(())
+    }
+
     pub async fn add_closure(&self, package_path: &NixPath) -> Result<()> {
         info!("Adding closure for {}", package_path.get_name());
         let entries_before = self.num_available_packages()?;
@@ -172,10 +195,10 @@ impl Store {
 
             match &daemon {
                 DynNixDaemon::Local(_) => {
-                    debug!("Using local daemon, built {} ", package_path.get_name())
+                    debug!("Using local daemon, fetched {} ", package_path.get_name())
                 }
                 DynNixDaemon::Remote(daemon) => debug!(
-                    "Using daemon at {}, built package {}",
+                    "Using daemon at {}, fetched package {}",
                     daemon.get_address(),
                     package_path.get_name()
                 ),

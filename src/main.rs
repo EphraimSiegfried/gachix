@@ -52,12 +52,18 @@ enum Command {
 #[derive(Parser)]
 struct Add {
     file_path: PathBuf,
+    #[arg(short, long, action)]
+    single: bool,
 }
 impl Add {
     async fn run_async(&self, cache: &Store) -> Result<()> {
         let path = NixPath::new(&self.file_path)?;
         cache.peer_health_check().await;
-        cache.add_closure(&path).await?;
+        if self.single {
+            cache.add_single(&path).await?;
+        } else {
+            cache.add_closure(&path).await?;
+        }
         Ok(())
     }
 
