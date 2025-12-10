@@ -206,6 +206,7 @@ mod tests {
     use std::process::Stdio;
 
     #[tokio::test]
+    #[ignore]
     async fn test_connect_remote() -> Result<()> {
         let mut nix = NixDaemon::remote("blinkybill");
         nix.connect().await?;

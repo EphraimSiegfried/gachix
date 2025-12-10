@@ -38,8 +38,10 @@ impl Store {
         if self.settings.use_local_nix_daemon {
             daemons.push(DynNixDaemon::Local(NixDaemon::local()));
         }
-        for addr in &self.settings.builders {
-            daemons.push(DynNixDaemon::Remote(NixDaemon::remote(&addr)));
+        for url in &self.settings.builders {
+            daemons.push(DynNixDaemon::Remote(NixDaemon::remote(
+                &url.host_str().unwrap(),
+            )));
         }
         Ok(daemons)
     }
@@ -65,12 +67,14 @@ impl Store {
             daemon.disconnect();
         }
 
-        for git_remote in &self.settings.remotes {
-            match self.repo.check_remote_health(&git_remote) {
-                Ok(_) => info!("Succesfully connected to Git repository at {git_remote}"),
+        for url in &self.settings.remotes {
+            let url_str = url.as_str();
+            let host = url.host().unwrap();
+            match self.repo.check_remote_health(&url_str) {
+                Ok(_) => info!("Succesfully connected to Git repository at {}", host),
                 Err(e) => {
                     success = false;
-                    warn!("Failed to connect to Git repository {git_remote}: {e}")
+                    warn!("Failed to connect to Git repository {}: {}", host, e)
                 }
             }
         }
@@ -186,15 +190,16 @@ impl Store {
         let package_id = store_path.get_base_32_hash();
         let mut commit_oid = None;
         let mut success_remote = "";
-        for remote in &self.settings.remotes {
-            if let Some(oid) = self.fetch_from_remote(package_id, remote)? {
+        for remote_url in &self.settings.remotes {
+            let url = remote_url.as_str();
+            if let Some(oid) = self.fetch_from_remote(package_id, url)? {
                 debug!(
                     "Using git peer at {}, fetched package {}",
-                    remote,
+                    remote_url,
                     store_path.get_name()
                 );
                 commit_oid = Some(oid);
-                success_remote = &remote;
+                success_remote = url;
                 break;
             }
         }

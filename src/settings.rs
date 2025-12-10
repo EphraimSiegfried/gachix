@@ -2,6 +2,7 @@ use std::path::PathBuf;
 
 use config::{Config, ConfigError, Environment, File};
 use serde::Deserialize;
+use url::Url;
 
 #[derive(Debug, Deserialize, Clone)]
 pub struct Server {
@@ -12,8 +13,8 @@ pub struct Server {
 #[derive(Debug, Deserialize, Clone)]
 pub struct Store {
     pub path: PathBuf,
-    pub builders: Vec<String>,
-    pub remotes: Vec<String>,
+    pub builders: Vec<Url>,
+    pub remotes: Vec<Url>,
     pub use_local_nix_daemon: bool,
 }
 
