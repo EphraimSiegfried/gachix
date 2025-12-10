@@ -45,16 +45,18 @@
         };
       in
       {
-        defaultPackage = naersk'.buildPackage (
-          {
-            src = ./.;
+        packages = rec {
+          gachix = naersk'.buildPackage (
+            {
+              src = ./.;
 
-            buildInputs = runtimeLibs;
-            nativeBuildInputs = [ pkgs.pkg-config ];
-          }
-          // cargoConfig
-        );
-
+              buildInputs = runtimeLibs;
+              nativeBuildInputs = [ pkgs.pkg-config ];
+            }
+            // cargoConfig
+          );
+          default = gachix;
+        };
         devShell = pkgs.mkShell {
           nativeBuildInputs = buildTools ++ runtimeLibs;
           env = cargoConfig;
