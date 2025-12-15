@@ -127,7 +127,6 @@ impl Stream for NarGitStream {
                             }
                             ObjectType::Blob => {
                                 let blob = obj.as_blob().unwrap();
-                                // **Here is the crucial copy**
                                 let content = blob.content().to_vec();
 
                                 if filemode
