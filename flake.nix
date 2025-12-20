@@ -6,6 +6,10 @@
       inputs.nixpkgs.follows = "nixpkgs";
     };
     nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
+    nix-github-actions = {
+      url = "github:nix-community/nix-github-actions";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
   };
 
   outputs =
@@ -14,6 +18,7 @@
       flake-utils,
       naersk,
       nixpkgs,
+      nix-github-actions,
     }:
     flake-utils.lib.eachDefaultSystem (
       system:
@@ -65,5 +70,9 @@
           env = cargoConfig;
         };
       }
-    );
+    )
+    // {
+      githubActions = nix-github-actions.lib.mkGithubMatrix { checks = self.packages; };
+
+    };
 }
