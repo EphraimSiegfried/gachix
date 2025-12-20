@@ -34,7 +34,12 @@ impl Store {
         let repo = GitRepo::new(&settings.path)?;
 
         let private_key = if let Some(key_path) = &settings.sign_private_key_path {
-            Some(PrivateKey::from_str(&fs::read_to_string(key_path)?)?)
+            let key = PrivateKey::from_str(&fs::read_to_string(key_path)?)?;
+            info!(
+                "Using private key located at: {:?}",
+                fs::canonicalize(key_path)?
+            );
+            Some(key)
         } else {
             None
         };
