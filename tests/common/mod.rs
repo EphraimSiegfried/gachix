@@ -8,6 +8,8 @@ use std::process::{Child, Command, Stdio};
 use std::thread::sleep;
 use std::time::Duration;
 
+pub const NIXPGKS_VERSION: &str = "github:NixOS/nixpkgs/21.05";
+
 pub struct CacheServer {
     child: Child,
 }
@@ -68,12 +70,22 @@ impl Drop for CacheServer {
 pub fn build_nix_package(package_name: &str) -> Result<PathBuf> {
     let output = Command::new("nix")
         .arg("build")
-        .arg(format!("nixpkgs#{}", package_name))
+        .arg(format!("{}#{}", NIXPGKS_VERSION, package_name))
+        .arg("--no-link")
         .arg("--print-out-paths")
         .output()?;
 
     let path = &String::from_utf8_lossy(&output.stdout).to_string();
     Ok(PathBuf::from(path))
+}
+
+pub fn delete_nix_package(package_name: &str) -> Result<()> {
+    Command::new("nix")
+        .arg("store")
+        .arg("delete")
+        .arg(format!("{}#{}", NIXPGKS_VERSION, package_name))
+        .spawn()?;
+    Ok(())
 }
 
 pub fn add_to_cache(

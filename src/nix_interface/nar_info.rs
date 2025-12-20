@@ -28,32 +28,34 @@ pub struct NarInfo {
     pub nar_size: u64,
     pub references: Vec<NixPath>,
     pub deriver: Option<NixPath>,
-    pub signature: String,
+    pub signature: Option<String>,
 }
 
 impl NarInfo {
     pub fn new(
         store_path: NixPath,
         key: String,
+        file_hash: String,
         file_size: u64,
         compression_type: Option<String>,
         nar_hash: String,
         nar_size: u64,
         deriver: Option<NixPath>,
         references: Vec<NixPath>,
+        signature: Option<String>,
     ) -> Self {
         Self {
             store_path: store_path,
             key: key,
             url: None,
             compression_type: compression_type,
-            file_hash: "".to_string(),
+            file_hash: file_hash,
             file_size: file_size,
             nar_hash: nar_hash,
             nar_size: nar_size,
             references: references,
             deriver: deriver,
-            signature: "todo-add-signature".to_string(),
+            signature: signature,
         }
     }
 
@@ -123,7 +125,7 @@ impl NarInfo {
             nar_size: get("NarSize")?.parse::<u64>()?,
             references,
             deriver,
-            signature: get("Sig")?.to_string(),
+            signature: Some(get("Sig")?.to_string()),
         })
     }
 
@@ -143,12 +145,12 @@ impl Display for NarInfo {
         let references_str = self
             .references
             .iter()
-            .map(|s| s.get_path())
+            .map(|s| format!("{}-{}", s.get_base_32_hash(), s.get_name()))
             .collect::<Vec<_>>()
             .join(" ");
 
         let deriver = match &self.deriver {
-            Some(d) => d.get_path().to_string(),
+            Some(d) => format!("{}-{}", d.get_base_32_hash(), d.get_name()),
             None => "".to_string(),
         };
 
@@ -156,14 +158,14 @@ impl Display for NarInfo {
         let values = [
             self.store_path.get_path(),
             url.as_str(),
-            self.compression_type.as_deref().unwrap_or(""),
+            self.compression_type.as_deref().unwrap_or("none"),
             self.file_hash.as_str(),
             file_size_str.as_str(),
             self.nar_hash.as_str(),
             nar_size_str.as_str(),
             references_str.as_str(),
             &deriver,
-            self.signature.as_str(),
+            self.signature.as_deref().unwrap_or(""),
         ];
 
         for (key, value) in KEYS.iter().zip(values) {

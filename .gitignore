@@ -1,15 +1,5 @@
-# Devenv
-.devenv*
-devenv.local.nix
-cache
-
-# direnv
 .direnv
-
-# pre-commit
 .pre-commit-config.yaml
-
-# Added by cargo
-
 /target
 result
+cache*

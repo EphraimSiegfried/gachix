@@ -1,10 +1,14 @@
 mod common;
+use std::{collections::HashMap, fs, process::Command};
+
 use anyhow::{Result, bail};
 use bytes::Buf;
 use nix_nar::Decoder;
 use regex::Regex;
 use reqwest::StatusCode;
 use tempfile::TempDir;
+
+use crate::common::NIXPGKS_VERSION;
 
 #[test]
 fn test_cache_info_request() -> Result<()> {
@@ -152,5 +156,60 @@ fn test_package_retrieval() -> Result<()> {
     let package_path = temp_path.join("my_package");
     decoder.unpack(package_path)?;
 
+    Ok(())
+}
+
+#[test]
+fn test_nix_substituter() -> Result<()> {
+    let tempdir = TempDir::new()?;
+    let temp_path = tempdir.path();
+    let port = 9239;
+    let base_url = format!("http://localhost:{}", port);
+    let repo_path = &temp_path.join("gachix");
+
+    // Fetch a package to Nix store
+    let package_name = "lolcat";
+    let store_path = common::build_nix_package(package_name)?;
+
+    // Create signatures
+    let key_name = "gachix";
+    let private_key_path = temp_path.join("cache.secret");
+    let public_key_path = temp_path.join("cache.pub");
+    let mut child = Command::new("nix-store")
+        .arg("--generate-binary-cache-key")
+        .arg(&key_name)
+        .arg(&private_key_path)
+        .arg(&public_key_path)
+        .spawn()?;
+    let status = child.wait()?;
+    assert!(status.success());
+
+    // Add package to Gachix
+    let config = HashMap::from([(
+        "GACHIX__STORE__SIGN_PRIVATE_KEY_PATH",
+        private_key_path.as_os_str().to_str().unwrap(),
+    )]);
+    common::add_to_cache(&store_path, &repo_path, Some(config))?;
+
+    // Delete the package such that Nix will try to fetch it later
+    common::delete_nix_package(package_name)?;
+
+    // Start the server
+    let _server = common::CacheServer::start(port, &repo_path)?;
+
+    let public_key = fs::read_to_string(public_key_path)?;
+    let output = Command::new("nix")
+        .arg("build")
+        .arg(format!("{}#{}", NIXPGKS_VERSION, package_name))
+        .arg("--no-link")
+        .arg("--option")
+        .arg("substituters")
+        .arg(base_url)
+        .arg("--option")
+        .arg("trusted-public-keys")
+        .arg(public_key)
+        .arg("--debug")
+        .output()?;
+    // TODO: It should test whether the path was actually substituted
     Ok(())
 }

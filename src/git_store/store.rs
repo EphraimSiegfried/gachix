@@ -1,5 +1,7 @@
 use std::collections::HashSet;
 use std::collections::VecDeque;
+use std::fs;
+use std::str::FromStr;
 
 use crate::git_store::GitRepo;
 use crate::nar::NarGitStream;
@@ -7,9 +9,13 @@ use crate::nix_interface::daemon::DynNixDaemon;
 use crate::nix_interface::daemon::NixDaemon;
 use crate::nix_interface::nar_info::NarInfo;
 use crate::nix_interface::path::NixPath;
+use crate::nix_interface::signature::PrivateKey;
+use crate::nix_interface::signature::fingerprint_store_object;
 use crate::settings;
 use anyhow::{anyhow, bail};
 use async_recursion::async_recursion;
+use base64::Engine;
+use base64::prelude::BASE64_STANDARD;
 use git2::Oid;
 use tracing::field::debug;
 use tracing::{debug, info, warn};
@@ -20,12 +26,24 @@ use anyhow::Result;
 pub struct Store {
     settings: settings::Store,
     repo: GitRepo,
+    private_key: Option<PrivateKey>,
 }
 
 impl Store {
     pub fn new(settings: settings::Store) -> Result<Self> {
         let repo = GitRepo::new(&settings.path)?;
-        let store = Self { settings, repo };
+
+        let private_key = if let Some(key_path) = &settings.sign_private_key_path {
+            Some(PrivateKey::from_str(&fs::read_to_string(key_path)?)?)
+        } else {
+            None
+        };
+
+        let store = Self {
+            settings,
+            repo,
+            private_key,
+        };
         info!(
             "Repository contains {} packages",
             store.num_available_packages()?
@@ -294,21 +312,43 @@ impl Store {
                 store_path.get_path()
             ));
         };
-        let refs_result: Result<Vec<NixPath>, anyhow::Error> = path_info
+        let references: Vec<NixPath> = path_info
             .references
             .iter()
             .map(|p| NixPath::new(p))
-            .collect();
+            .collect::<Result<Vec<_>, _>>()?;
+
+        let nar_size = path_info.nar_size;
+        let nar_hash = hex::decode(path_info.nar_hash)?;
+
+        // TODO: compute hash instead of copying it and verify it against the received hash
+        let mut nar_hash_32_base = nix_base32::to_nix_base32(&nar_hash);
+        // TODO: formatting should be handled by the NarInfo struct
+        nar_hash_32_base = format!("sha256:{}", nar_hash_32_base);
+
+        let signature = self.private_key.as_ref().map(|private_key| {
+            let fingerprint =
+                fingerprint_store_object(store_path, &nar_hash_32_base, nar_size, &references);
+            let signature_bytes = private_key.sign(fingerprint.as_bytes());
+            format!(
+                "{}:{}",
+                private_key.name,
+                BASE64_STANDARD.encode(signature_bytes)
+            )
+        });
+
         let deriver = path_info.deriver.map(|d| NixPath::new(&d)).transpose()?;
         let narinfo = NarInfo::new(
             store_path.clone(),
             key.to_string(),
-            0,
+            nar_hash_32_base.clone(),
+            path_info.nar_size,
             None,
-            "".to_string(),
+            nar_hash_32_base,
             path_info.nar_size,
             deriver,
-            refs_result?,
+            references,
+            signature,
         );
         Ok(narinfo)
     }
@@ -390,6 +430,7 @@ mod tests {
             builders: vec![],
             remotes: vec![],
             use_local_nix_daemon: true,
+            sign_private_key_path: None,
         }
     }
 

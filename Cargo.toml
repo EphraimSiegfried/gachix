@@ -29,6 +29,9 @@ config = "0.15.18"
 serde = "1.0.228"
 async-recursion = "1.1.1"
 url = "2.5.7"
+hex = "0.4.3"
+ring = "0.17.14"
+base64 = "0.22.1"
 
 [dev-dependencies]
 nix-nar = "0.3.0"

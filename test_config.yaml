@@ -1,7 +1,7 @@
 store:
-  path: ./peer_cache
+  path: ./gachix_cache
   builders: []
-  remotes: ['ssh://blinkybill/home/siegi/repos/gachix/cache']
+  sign_private_key_path: ./cache.secret
 server:
   host: localhost
   port: 8080
