@@ -7,7 +7,7 @@
     };
     nixpkgs.url = "github:NixOS/nixpkgs/nixpkgs-unstable";
     nix-github-actions = {
-      url = "github:nix-community/nix-github-actions";
+      url = "github:EphraimSiegfried/nix-github-actions";
       inputs.nixpkgs.follows = "nixpkgs";
     };
   };
@@ -54,7 +54,7 @@
       in
       {
         packages = rec {
-          gachix = naersk'.buildPackage (
+          default = naersk'.buildPackage (
             {
               src = ./.;
 
@@ -63,7 +63,6 @@
             }
             // cargoConfig
           );
-          default = gachix;
         };
         devShell = pkgs.mkShell {
           nativeBuildInputs = buildTools ++ runtimeLibs;
