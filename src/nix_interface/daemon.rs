@@ -62,19 +62,16 @@ impl NixDaemon<AsyncChannel<TokioTcpStream>> {
         // as specified in https://nix.dev/manual/nix/2.22/package-management/ssh-substituter
         let user = "nix-ssh";
 
-        dbg!("hi");
         session
             .userauth_pubkey_file(&user, None, &key_path, None)
             .await?;
         if !session.authenticated() {
             return Err(anyhow!("Could not authenticate to remote",));
         }
-        dbg!("hi");
         let mut channel = session.channel_session().await?;
         // NOTE: for some reason this has to be executed, I have no idea why
         channel.exec("").await?;
         self.daemon = Some(DaemonStore::builder().init(channel).await?);
-        dbg!("hi");
         Ok(())
     }
 }
