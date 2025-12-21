@@ -46,6 +46,7 @@ server:
                 .separator("__")
                 .list_separator(",")
                 .with_list_parse_key("store.remotes")
+                .with_list_parse_key("store.builders")
                 .try_parsing(true),
         )
         .build()?;
