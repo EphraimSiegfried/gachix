@@ -10,8 +10,7 @@ use crate::nix_interface::path::NixPath;
 use anyhow::Result;
 use git_store::store::Store;
 use tokio::runtime::Runtime;
-use tracing::Level;
-use tracing_subscriber::fmt;
+use tracing_subscriber::{EnvFilter, fmt};
 mod settings;
 
 fn main() -> Result<()> {
@@ -19,9 +18,10 @@ fn main() -> Result<()> {
 
     let settings = settings::load_config(&args.config.unwrap_or("".to_string()))?;
 
-    fmt::Subscriber::builder()
-        .with_max_level(Level::TRACE)
-        .init();
+    let filter =
+        EnvFilter::try_from_default_env().unwrap_or_else(|_| EnvFilter::new(&settings.log_level));
+
+    tracing_subscriber::fmt().with_env_filter(filter).init();
 
     let args = Args::parse();
     let cache = Store::new(settings.store)?;

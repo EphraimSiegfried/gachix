@@ -24,10 +24,12 @@ pub struct Store {
 pub struct Settings {
     pub store: Store,
     pub server: Server,
+    pub log_level: String,
 }
 
 pub fn load_config(config_file: &str) -> Result<Settings, ConfigError> {
     let defaults = r#"
+log_level: info
 store:
     path: ./cache
     builders: []
