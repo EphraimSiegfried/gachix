@@ -1,0 +1,29 @@
+# this docker compose file serves for testing connections 
+# from a non nix system (the docker container) to a remote
+# nix daemon (the daemon located at the host). the daemon
+# should be able to provide the package to the container.
+# this can be tested with:
+#
+# docker compose up
+# docker exec gachix_service /usr/local/bin/gachix add $(nix build nixpkgs#hello --print-out-paths)
+#
+# this works provided that the local nix host has this enabled:
+# https://mynixos.com/nixpkgs/option/nix.sshServe.enable
+services:
+  app:
+    build: .
+    image: gachix:latest
+    container_name: gachix_service
+    volumes:
+      - ~/.ssh/id_ed25519:/id_ed25519
+    ports:
+      - "9192:9192"
+    environment:
+      - GACHIX__STORE__SSH_PRIVATE_KEY_PATH=/id_ed25519
+      - GACHIX__STORE__USE_LOCAL_NIX_DAEMON=false
+      - GACHIX__STORE__BUILDERS=ssh://host.docker.internal
+      - GACHIX__SERVER__HOST=0.0.0.0
+      - GACHIX__SERVER__PORT=9192
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    command: ["gachix", "serve"]

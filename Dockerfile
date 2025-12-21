@@ -3,12 +3,13 @@ FROM rust:slim-bookworm AS builder
 WORKDIR /gachix
 COPY . /gachix
 
-RUN apt update
-RUN apt install -y libssl-dev pkg-config
+RUN apt-get update && apt-get install -y libssl-dev pkg-config
 RUN cargo build --release
 
-FROM ubuntu:25.10
+FROM debian:bookworm-slim
 
-COPY --from=builder /gachix/target/release/gachix gachix
+RUN apt-get update && apt-get install -y ca-certificates libssl3 && rm -rf /var/lib/apt/lists/*
 
-CMD ["./gachix", "serve"]
+COPY --from=builder /gachix/target/release/gachix /usr/local/bin/gachix
+
+CMD ["gachix", "serve"]
