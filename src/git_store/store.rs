@@ -61,9 +61,17 @@ impl Store {
         if self.settings.use_local_nix_daemon {
             daemons.push(DynNixDaemon::Local(NixDaemon::local()));
         }
+        if self.settings.builders.is_empty() {
+            return Ok(daemons);
+        }
+        let key_file = self.settings.ssh_private_key_path.as_ref().ok_or_else(|| {
+            anyhow!("Path to private ssh key must be specified when using remote Nix daemons")
+        })?;
+
         for url in &self.settings.builders {
             daemons.push(DynNixDaemon::Remote(NixDaemon::remote(
                 &url.host_str().unwrap(),
+                key_file.clone(),
             )));
         }
         Ok(daemons)

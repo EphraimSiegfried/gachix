@@ -20,7 +20,7 @@ fn main() -> Result<()> {
     let settings = settings::load_config(&args.config.unwrap_or("".to_string()))?;
 
     fmt::Subscriber::builder()
-        .with_max_level(Level::DEBUG)
+        .with_max_level(Level::TRACE)
         .init();
 
     let args = Args::parse();

@@ -22,7 +22,6 @@ bytes = "1.10.1"
 nix-daemon = { git = "https://codeberg.org/siegii/gorgon.git" }
 async-ssh2-lite = {version = "0.5.0", features = ["tokio"]}
 dirs = "6.0.0"
-whoami = "1.6.1"
 nix-nar = "0.3.0"
 lazy_static = "1.5.0"
 config = "0.15.18"

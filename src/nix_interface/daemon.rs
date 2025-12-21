@@ -1,5 +1,6 @@
 use std::collections::HashMap;
 use std::io::{BufReader, Read};
+use std::path::PathBuf;
 
 use anyhow::{Result, anyhow, bail};
 use async_ssh2_lite::{AsyncChannel, AsyncSession, TokioTcpStream};
@@ -19,6 +20,8 @@ impl<T> AsyncStream for T where T: AsyncWriteExt + AsyncReadExt + AsyncWrite + U
 pub struct NixDaemon<C: AsyncStream> {
     daemon: Option<DaemonStore<C>>,
     address: String,
+    // TODO: this is only used by the ssh Nix daemon. find a better place to store this
+    ssh_private_key_path: Option<PathBuf>,
 }
 
 impl NixDaemon<UnixStream> {
@@ -26,6 +29,7 @@ impl NixDaemon<UnixStream> {
         Self {
             daemon: None,
             address: "/nix/var/nix/daemon-socket/socket".to_string(),
+            ssh_private_key_path: None,
         }
     }
     pub async fn connect(&mut self) -> Result<()> {
@@ -35,10 +39,11 @@ impl NixDaemon<UnixStream> {
     }
 }
 impl NixDaemon<AsyncChannel<TokioTcpStream>> {
-    pub fn remote(address: &str) -> Self {
+    pub fn remote(address: &str, ssh_private_key_path: PathBuf) -> Self {
         Self {
             daemon: None,
             address: address.to_string(),
+            ssh_private_key_path: Some(ssh_private_key_path),
         }
     }
 
@@ -51,19 +56,25 @@ impl NixDaemon<AsyncChannel<TokioTcpStream>> {
         let mut session = AsyncSession::new(stream, None)?;
         session.handshake().await?;
 
-        let home = dirs::home_dir().ok_or(anyhow!("Home directory not found"))?;
-        let key = home.join(".ssh").join("id_ed25519");
-        let user = whoami::username();
+        // we can safely unwrap because all ssh Nix daemons are provided with a private key
+        let key_path = self.ssh_private_key_path.as_ref().unwrap();
+        // the default user name for accessing remote ssh stores
+        // as specified in https://nix.dev/manual/nix/2.22/package-management/ssh-substituter
+        let user = "nix-ssh";
 
+        dbg!("hi");
         session
-            .userauth_pubkey_file(&user, None, &key, None)
+            .userauth_pubkey_file(&user, None, &key_path, None)
             .await?;
         if !session.authenticated() {
             return Err(anyhow!("Could not authenticate to remote",));
         }
+        dbg!("hi");
         let mut channel = session.channel_session().await?;
-        channel.exec("nix daemon --stdio").await?;
+        // NOTE: for some reason this has to be executed, I have no idea why
+        channel.exec("").await?;
         self.daemon = Some(DaemonStore::builder().init(channel).await?);
+        dbg!("hi");
         Ok(())
     }
 }

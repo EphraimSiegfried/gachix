@@ -17,6 +17,7 @@ pub struct Store {
     pub remotes: Vec<Url>,
     pub use_local_nix_daemon: bool,
     pub sign_private_key_path: Option<PathBuf>,
+    pub ssh_private_key_path: Option<PathBuf>,
 }
 
 #[derive(Debug, Deserialize, Clone)]
