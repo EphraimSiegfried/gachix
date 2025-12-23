@@ -9,7 +9,7 @@ packages with peers.
 
 It is quite fast and storage efficient. Benchmarking results show that Gachix
 has the lowest median NAR retrieval latency and reduces the size of storage by
-82%. More details can be found
+82% when compared with other Nix binary caches. More details can be found
 [in my bachelor thesis](https://github.com/EphraimSiegfried/bachelor-thesis/blob/master/bsc_thesis_siegfried.pdf).
 
 ## Getting started
