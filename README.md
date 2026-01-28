@@ -10,7 +10,10 @@ packages with peers.
 It is quite fast and storage efficient. Benchmarking results show that Gachix
 has the lowest median NAR retrieval latency and reduces the size of storage by
 82% when compared with other Nix binary caches. More details can be found
-[in my bachelor thesis](https://cn.dmi.unibas.ch/fileadmin/user_upload/redesign-cn-dmi/pubs/theses/bachelor/Siegfried-Gachix-Nix-Bin-Cache-Over-Git.pdf).
+[in my bachelor thesis](https://cn.dmi.unibas.ch/fileadmin/user_upload/redesign-cn-dmi/pubs/theses/bachelor/Siegfried-Gachix-Nix-Bin-Cache-Over-Git.pdf)
+or in my [blog post](https://www.ephraimsiegfried.ch/posts/nix-binary-cache-backed-by-git).
+
+**This project is not ready for production.**
 
 ## Getting started
 
