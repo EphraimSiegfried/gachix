@@ -214,19 +214,6 @@ mod tests {
     use std::process::Stdio;
 
     #[tokio::test]
-    #[ignore]
-    async fn test_connect_remote() -> Result<()> {
-        let mut nix = NixDaemon::remote("blinkybill");
-        nix.connect().await?;
-
-        nix.get_pathinfo(&NixPath::new(
-            "/nix/store/h0b3pxg56bh5lnh4bqrb2gsrbkdzmpsh-kitty-0.43.1",
-        )?)
-        .await?;
-        Ok(())
-    }
-
-    #[tokio::test]
     async fn test_local_build_package() -> Result<()> {
         let mut nix = NixDaemon::local();
         nix.connect().await?;
