@@ -27,6 +27,18 @@
           inherit system;
         };
 
+        inherit (pkgs.lib.fileset) toSource unions;
+
+        src = toSource {
+          root = ./.;
+          fileset = unions [
+            ./src
+            ./tests
+            ./Cargo.toml
+            ./Cargo.lock
+          ];
+        };
+
         naersk' = pkgs.callPackage naersk { };
 
         runtimeLibs = with pkgs; [
@@ -56,7 +68,7 @@
         packages = {
           default = naersk'.buildPackage (
             {
-              src = ./.;
+              inherit src;
 
               buildInputs = runtimeLibs;
               nativeBuildInputs = [ pkgs.pkg-config ];
