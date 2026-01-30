@@ -198,7 +198,7 @@ fn test_nix_substituter() -> Result<()> {
     let _server = common::CacheServer::start(port, &repo_path)?;
 
     let public_key = fs::read_to_string(public_key_path)?;
-    let output = Command::new("nix")
+    let _output = Command::new("nix")
         .arg("build")
         .arg(format!("{}#{}", NIXPGKS_VERSION, package_name))
         .arg("--no-link")
