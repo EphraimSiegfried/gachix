@@ -1,4 +1,4 @@
-mod common;
+pub mod common;
 use std::{collections::HashMap, fs, process::Command};
 
 use anyhow::{Result, bail};
