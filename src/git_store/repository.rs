@@ -15,7 +15,7 @@ use std::os::unix::ffi::OsStrExt;
 use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
 use std::sync::{Arc, RwLock};
-use tracing::{Level, debug, info, instrument, span, trace};
+use tracing::{Level, info, instrument, span, trace};
 
 pub struct GitRepo {
     repo: Arc<RwLock<Repository>>,

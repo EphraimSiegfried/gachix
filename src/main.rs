@@ -10,7 +10,7 @@ use crate::nix_interface::path::NixPath;
 use anyhow::Result;
 use git_store::store::Store;
 use tokio::runtime::Runtime;
-use tracing_subscriber::{EnvFilter, fmt};
+use tracing_subscriber::EnvFilter;
 mod settings;
 
 fn main() -> Result<()> {

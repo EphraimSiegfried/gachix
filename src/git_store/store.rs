@@ -17,7 +17,6 @@ use async_recursion::async_recursion;
 use base64::Engine;
 use base64::prelude::BASE64_STANDARD;
 use git2::Oid;
-use tracing::field::debug;
 use tracing::{debug, info, warn};
 
 use anyhow::Result;
