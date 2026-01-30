@@ -1,5 +1,4 @@
 use anyhow::{Result, anyhow};
-use nix_base32::from_nix_base32;
 use std::{fmt::Display, path::Path};
 
 #[derive(Debug, Clone)]
@@ -40,10 +39,6 @@ impl NixPath {
             hash: hash.to_string(),
             name: name.to_string(),
         })
-    }
-
-    pub fn get_hash_bytes(&self) -> Vec<u8> {
-        from_nix_base32(&self.hash).unwrap()
     }
 
     pub fn get_base_32_hash(&self) -> &str {

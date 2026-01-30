@@ -85,6 +85,8 @@ impl<C: AsyncStream> NixDaemon<C> {
         Ok(path_info)
     }
 
+    #[allow(dead_code)]
+    // This function could be used to trigger builds
     pub async fn build(&mut self, drv_paths: &[&NixPath]) -> Result<HashMap<String, BuildResult>> {
         let Some(daemon) = &mut self.daemon else {
             bail!("Not connected to Nix Daemon")
@@ -161,13 +163,6 @@ impl DynNixDaemon {
         match self {
             DynNixDaemon::Local(daemon) => daemon.get_pathinfo(path).await,
             DynNixDaemon::Remote(daemon) => daemon.get_pathinfo(path).await,
-        }
-    }
-
-    pub async fn build(&mut self, drv_paths: &[&NixPath]) -> Result<HashMap<String, BuildResult>> {
-        match self {
-            DynNixDaemon::Local(daemon) => daemon.build(drv_paths).await,
-            DynNixDaemon::Remote(daemon) => daemon.build(drv_paths).await,
         }
     }
 
