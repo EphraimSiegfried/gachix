@@ -443,6 +443,7 @@ mod tests {
             remotes: vec![],
             use_local_nix_daemon: true,
             sign_private_key_path: None,
+            ssh_private_key_path: None,
         }
     }
 
