@@ -52,8 +52,8 @@
           OPENSSL_LIB_DIR = "${pkgs.lib.getLib pkgs.openssl}/lib";
         };
       in
-      {
-        packages = rec {
+      rec {
+        packages = {
           default = naersk'.buildPackage (
             {
               src = ./.;
@@ -64,6 +64,8 @@
             // cargoConfig
           );
         };
+        nixosModules.default = (import ./nixos-module.nix { gachix = packages.default; });
+        checks.e2e = pkgs.testers.runNixOSTest (import ./nixos-test.nix { gachix = packages.default; });
         devShell = pkgs.mkShell {
           nativeBuildInputs = buildTools ++ runtimeLibs;
           env = cargoConfig;
