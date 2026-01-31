@@ -44,14 +44,14 @@ In your Nix configuration, use:
 ```nix
 { inputs, ... }:
 {
-  imports = [ inputs.gachix.nixosModules.x86_64-linux.default ];
+  imports = [ inputs.gachix.nixosModules.default ];
   services = {
     enable = true;
     port = 8080;
     openFirewall = true;
-    exposeLocalNix = true;
     settings = {
       store = {
+        use_local_nix_daemon = true;
         path = "/var/lib/gachix/cache";
         remotes = [ ];
         sign_private_key_path = "/run/gachix/cache.secret";
