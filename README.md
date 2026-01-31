@@ -62,7 +62,7 @@ In your Nix configuration, use:
 ```
 
 Refer to the [configuration section](#Configuration) or the
-[module definition](./nixos-module.nix) for more options.
+[module definition](./modules/nixos-module.nix) for more options.
 
 ### Build from source
 
