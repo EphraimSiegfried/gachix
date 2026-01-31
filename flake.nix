@@ -53,7 +53,7 @@
         };
       in
       {
-        packages = rec {
+        packages = {
           default = naersk'.buildPackage (
             {
               src = ./.;
@@ -64,6 +64,7 @@
             // cargoConfig
           );
         };
+        checks.e2e = pkgs.testers.runNixOSTest (import ./nixos-test.nix { inherit self; });
         devShell = pkgs.mkShell {
           nativeBuildInputs = buildTools ++ runtimeLibs;
           env = cargoConfig;
@@ -72,6 +73,6 @@
     )
     // {
       githubActions = nix-github-actions.lib.mkGithubMatrix { checks = self.packages; };
-
+      nixosModules.default = (import ./nixos-module.nix { inherit self; });
     };
 }

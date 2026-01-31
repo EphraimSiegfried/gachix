@@ -1,5 +1,6 @@
 .direnv
 .pre-commit-config.yaml
+.nixos-test-history
 /target
 result
 cache*
