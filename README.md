@@ -11,7 +11,8 @@ It is quite fast and storage efficient. Benchmarking results show that Gachix
 has the lowest median NAR retrieval latency and reduces the size of storage by
 82% when compared with other Nix binary caches. More details can be found
 [in my bachelor thesis](https://cn.dmi.unibas.ch/fileadmin/user_upload/redesign-cn-dmi/pubs/theses/bachelor/Siegfried-Gachix-Nix-Bin-Cache-Over-Git.pdf)
-or in my [blog post](https://www.ephraimsiegfried.ch/posts/nix-binary-cache-backed-by-git).
+or in my
+[blog post](https://www.ephraimsiegfried.ch/posts/nix-binary-cache-backed-by-git).
 
 **This project is not ready for production.**
 
@@ -24,6 +25,44 @@ Try it out in a Nix shell with
 ```
 nix shell github:EphraimSiegfried/gachix
 ```
+
+#### NixOS Module
+
+#### Flakes
+
+To use Gachix as a NixOS module, import the Gachix flake in your flake.nix:
+
+```nix
+{
+  inputs.gachix.url = "github:EphraimSiegfried/gachix";
+  # ... other imports
+}
+```
+
+In your Nix configuration, use:
+
+```nix
+{ inputs, ... }:
+{
+  imports = [ inputs.gachix.nixosModules.x86_64-linux.default ];
+  services = {
+    enable = true;
+    port = 8080;
+    openFirewall = true;
+    exposeLocalNix = true;
+    settings = {
+      store = {
+        path = "/var/lib/gachix/cache";
+        remotes = [ ];
+        sign_private_key_path = "/run/gachix/cache.secret";
+      };
+    };
+  };
+}
+```
+
+Refer to the [configuration section](#Configuration) or the
+[module definition](./nixos-module.nix) for more options.
 
 ### Build from source
 
