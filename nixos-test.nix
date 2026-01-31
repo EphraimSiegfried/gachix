@@ -1,4 +1,4 @@
-{ gachix }:
+{ self }:
 { pkgs, ... }:
 let
   port = 9192;
@@ -19,7 +19,7 @@ in
   name = "gachix";
   nodes = {
     server = {
-      imports = [ (import ./nixos-module.nix { inherit gachix; }) ];
+      imports = [ (import ./nixos-module.nix { inherit self; }) ];
 
       nix.enable = false; # gachix should be able to run without nix available
 
@@ -30,6 +30,7 @@ in
         settings.store = {
           ssh_private_key_path = snakeOilEd25519PrivateKey;
           builders = [ "ssh://client" ];
+          use_local_nix_daemon = false;
         };
       };
     };

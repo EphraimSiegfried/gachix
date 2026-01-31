@@ -52,7 +52,7 @@
           OPENSSL_LIB_DIR = "${pkgs.lib.getLib pkgs.openssl}/lib";
         };
       in
-      rec {
+      {
         packages = {
           default = naersk'.buildPackage (
             {
@@ -64,8 +64,7 @@
             // cargoConfig
           );
         };
-        nixosModules.default = (import ./nixos-module.nix { gachix = packages.default; });
-        checks.e2e = pkgs.testers.runNixOSTest (import ./nixos-test.nix { gachix = packages.default; });
+        checks.e2e = pkgs.testers.runNixOSTest (import ./nixos-test.nix { inherit self; });
         devShell = pkgs.mkShell {
           nativeBuildInputs = buildTools ++ runtimeLibs;
           env = cargoConfig;
@@ -74,6 +73,6 @@
     )
     // {
       githubActions = nix-github-actions.lib.mkGithubMatrix { checks = self.packages; };
-
+      nixosModules.default = (import ./nixos-module.nix { inherit self; });
     };
 }

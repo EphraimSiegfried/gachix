@@ -1,4 +1,4 @@
-{ gachix }:
+{ self }:
 {
   pkgs,
   lib,
@@ -17,13 +17,14 @@ let
         --add-flags '--config ${fmt.generate "gachix.yaml" cfg.settings}'
     '';
   };
+  exposeLocalNix = cfg.settings.store.use_local_nix_daemon or config.nix.enable;
 in
 {
   options.services.gachix = {
     enable = lib.mkEnableOption "Gachix distributed nix cache";
 
     package = (lib.mkPackageOption pkgs "gachix" { }) // {
-      default = gachix;
+      default = self.packages.${pkgs.stdenv.hostPlatform.system}.default;
     };
 
     finalPackage = lib.mkOption {
@@ -72,12 +73,6 @@ in
       example = "gachix-2";
     };
 
-    exposeLocalNix = lib.mkOption {
-      description = "Whether to expose the local nix-daemon to Gachix. Disable if pulling from elsewhere.";
-      type = lib.types.bool;
-      default = config.nix.enable;
-    };
-
     port = lib.mkOption {
       description = "The port to open Gachix on.";
       type = lib.types.port;
@@ -98,7 +93,6 @@ in
       settings = {
         store = {
           path = lib.mkForce "/var/lib/${cfg.stateDir}/cache";
-          use_local_nix_daemon = lib.mkIf (!cfg.exposeLocalNix) (lib.mkForce false);
         };
         server = {
           host = lib.mkForce "0.0.0.0";
@@ -129,8 +123,8 @@ in
         User = cfg.user;
         Group = cfg.group;
 
-        BindPaths = lib.optional (cfg.exposeLocalNix) "/nix/var/nix/daemon-socket/socket";
-        BindReadOnlyPaths = lib.optional (cfg.exposeLocalNix) "/nix";
+        BindPaths = lib.optional exposeLocalNix "/nix/var/nix/daemon-socket/socket";
+        BindReadOnlyPaths = lib.optional exposeLocalNix "/nix";
 
         WorkingDirectory = "/var/lib/${cfg.stateDir}";
         StateDirectory = cfg.stateDir;
