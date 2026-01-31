@@ -42,6 +42,7 @@ in
       nix.sshServe = {
         enable = true;
         keys = [ snakeOilEd25519PublicKey ];
+        protocol = "ssh-ng";
       };
     };
   };
@@ -55,6 +56,6 @@ in
     client.wait_for_open_port(22)
 
     server.succeed("sudo -u gachix gachix add ${pkgs.hello}")
-    client.succeed("curl -f \"http://server:${toString port}$(echo ''${${pkgs.hello}#/nix/store/} | awk -F- '{print $1}').narinfo\"")
+    client.succeed("curl -f \"http://server:${toString port}/$(basename ${pkgs.hello} | awk -F- '{print $1}').narinfo\"")
   '';
 }
