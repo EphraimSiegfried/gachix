@@ -129,6 +129,7 @@ in
         User = cfg.user;
         Group = cfg.group;
 
+        BindPaths = lib.optional (cfg.exposeLocalNix) "/nix/var/nix/daemon-socket/socket";
         BindReadOnlyPaths = lib.optional (cfg.exposeLocalNix) "/nix";
 
         WorkingDirectory = "/var/lib/${cfg.stateDir}";
