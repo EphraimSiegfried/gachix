@@ -51,6 +51,13 @@ impl GitRepo {
         Ok(blob_oid)
     }
 
+    pub fn add_single_entry_tree(&self, entry_oid: Oid, name: &str, filemode: i32) -> Result<Oid> {
+        let repo = self.repo.read().unwrap();
+        let mut builder = repo.treebuilder(None)?;
+        builder.insert(&name, entry_oid, filemode)?;
+        Ok(builder.write()?)
+    }
+
     #[allow(dead_code)]
     pub fn add_dir<T: AsRef<Path>>(&self, path: &T) -> Result<Oid> {
         let path = path.as_ref();
@@ -197,6 +204,25 @@ impl GitRepo {
             );
         }
         Ok(refs_names)
+    }
+
+    pub fn match_sole_entry_id(&self, tree_oid: Oid, name: &str) -> Result<Option<Oid>> {
+        let repo = self.repo.read().unwrap();
+        let tree = repo.find_tree(tree_oid)?;
+        if tree.len() != 1 {
+            return Ok(None);
+        }
+        let entry = tree
+            .iter()
+            .next()
+            .ok_or_else(|| anyhow!("Expected at least one entry in tree"))?;
+        let entry_oid = entry.name().and_then(|n| {
+            if n == name {
+                return Some(entry.id());
+            }
+            None
+        });
+        Ok(entry_oid)
     }
 
     pub fn check_remote_health(&self, url: &str) -> Result<()> {

@@ -1,5 +1,5 @@
 pub mod common;
-use std::{collections::HashMap, fs, process::Command};
+use std::{collections::HashMap, fs, path::PathBuf, process::Command};
 
 use anyhow::{Result, bail};
 use bytes::Buf;
@@ -155,6 +155,58 @@ fn test_package_retrieval() -> Result<()> {
     let decoder = Decoder::new(package_nar.reader())?;
     let package_path = temp_path.join("my_package");
     decoder.unpack(package_path)?;
+
+    Ok(())
+}
+
+#[test]
+fn test_single_file_retrieval() -> Result<()> {
+    let tempdir = TempDir::new()?;
+    let temp_path = tempdir.path();
+    let port = 9239;
+    let base_url = format!("http://localhost:{}", port);
+    let repo_path = &temp_path.join("gachix");
+
+    // Add some package to the cache
+    let file_path = &temp_path.join("sf-package");
+    let file_content = "some content".to_string();
+    fs::write(file_path, &file_content)?;
+    let output = Command::new("nix")
+        .arg("store")
+        .arg("add")
+        .arg(file_path)
+        .output()?;
+    let pkg_store_path = PathBuf::from(&String::from_utf8_lossy(&output.stdout).to_string());
+    common::add_to_cache(&pkg_store_path, &repo_path, None)?;
+
+    // start the server
+    let _server = common::CacheServer::start(port, &repo_path)?;
+
+    // retrieve nix hash from the nix path
+    let nix_hash = common::get_hash(&pkg_store_path)?;
+
+    let narinfo_response = common::request(&format!("{base_url}/{nix_hash}.narinfo"))?;
+    let narinfo_body = narinfo_response.text()?;
+
+    // retrieve URL value from narinfo
+    let re = Regex::new(r"URL: (nar\/.*)\n")?;
+    let Some(caps) = re.captures(&narinfo_body) else {
+        bail!("Could not find URL in narinfo");
+    };
+    let url = &caps[1];
+
+    // fetch the package
+    let package_response = common::request(&format!("{base_url}/{url}"))?;
+
+    // check whether the returned nar can be unpacked
+    let package_nar = package_response.bytes()?;
+    let decoder = Decoder::new(package_nar.reader())?;
+    let package_path = temp_path.join("my_package");
+    decoder.unpack(&package_path)?;
+
+    // check whether file content matches what was added to store
+    let received_content = fs::read(&package_path)?;
+    assert_eq!(file_content.into_bytes(), received_content);
 
     Ok(())
 }
