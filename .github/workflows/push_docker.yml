@@ -34,7 +34,7 @@ jobs:
       - name: Push to DockerHub
         run: |
           nixTag="$(nix eval --raw .#dockerImage.imageTag)"
-          localImage="ephraimsiegfried/gachix:$nixTag"
+          localImage="gachix:$nixTag"
           for tag in $TAGS_TO_PUSH; do
             docker tag "$localImage" "$tag"
             docker push "$tag"
