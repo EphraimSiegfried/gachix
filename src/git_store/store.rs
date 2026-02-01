@@ -1,3 +1,4 @@
+use super::SINGLE_FILE_PACKAGE_MARKER;
 use std::collections::HashSet;
 use std::collections::VecDeque;
 use std::fs;
@@ -16,6 +17,7 @@ use anyhow::{anyhow, bail};
 use async_recursion::async_recursion;
 use base64::Engine;
 use base64::prelude::BASE64_STANDARD;
+use git2::FileMode;
 use git2::Oid;
 use tracing::{debug, info, warn};
 
@@ -210,12 +212,19 @@ impl Store {
             };
             // Add the package contents to the Git database
             let clone = self.repo.clone();
-            let package_oid = daemon
-                .fetch(package_path, move |r| {
-                    let (oid, _) = clone.add_nar(r)?;
-                    Ok(oid)
-                })
+            let (mut package_oid, filemode) = daemon
+                .fetch(package_path, move |r| Ok(clone.add_nar(r)?))
                 .await?;
+
+            // Handle single file packages
+            // Commits can only point to trees therefore we need to wrap the blob in a special tree
+            if filemode != i32::from(FileMode::Tree) {
+                package_oid = self.repo.add_single_entry_tree(
+                    package_oid,
+                    SINGLE_FILE_PACKAGE_MARKER,
+                    filemode,
+                )?;
+            }
 
             // Get metadata info about the package and add it to the Git database
             let narinfo = self
@@ -381,7 +390,14 @@ impl Store {
     }
 
     pub fn get_as_nar_stream(&self, key: &str) -> Result<Option<NarGitStream>> {
-        self.repo.get_entry_as_nar(Oid::from_str(key)?)
+        let tree_oid = Oid::from_str(key)?;
+        // get the blob oid if the package consists of a single file
+        // else use the package tree oid
+        let oid = self
+            .repo
+            .match_sole_entry_id(tree_oid, SINGLE_FILE_PACKAGE_MARKER)?
+            .unwrap_or(tree_oid);
+        self.repo.get_entry_as_nar(oid)
     }
 
     pub fn list_entries(&self) -> Result<Vec<String>> {
