@@ -14,7 +14,7 @@ jobs:
       - id: meta
         uses: docker/metadata-action@v5
         with:
-          images: EphraimSiegfried/gachix
+          images: ephraimsiegfried/gachix
           tags: |
             type=sha,format=long
             type=semver,pattern={{version}}
@@ -34,8 +34,8 @@ jobs:
       - name: Push to DockerHub
         run: |
           nixTag="$(nix eval --raw .#dockerImage.imageTag)"
-          for tag in $tags; do
-            docker push gachix:$nixTag $tag
+          for tag in $TAGS_TO_PUSH; do
+            docker push ephraimsiegfried/gachix:$nixTag $tag
           done
         env:
-          TAGS_TO_PUSH: ${{ steps.meta.output.tags }}
+          TAGS_TO_PUSH: ${{ steps.meta.outputs.tags }}
