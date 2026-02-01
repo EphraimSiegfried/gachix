@@ -1,6 +1,12 @@
 {
   inputs = {
-    flake-utils.url = "github:numtide/flake-utils";
+    flake-parts.url = "github:hercules-ci/flake-parts";
+    import-tree.url = "github:vic/import-tree";
+    systems.url = "github:nix-systems/default";
+    treefmt = {
+      url = "github:numtide/treefmt-nix";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
     naersk = {
       url = "github:nix-community/naersk";
       inputs.nixpkgs.follows = "nixpkgs";
@@ -13,66 +19,10 @@
   };
 
   outputs =
-    {
-      self,
-      flake-utils,
-      naersk,
-      nixpkgs,
-      nix-github-actions,
+    inputs@{
+      flake-parts,
+      import-tree,
+      ...
     }:
-    flake-utils.lib.eachDefaultSystem (
-      system:
-      let
-        pkgs = (import nixpkgs) {
-          inherit system;
-        };
-
-        naersk' = pkgs.callPackage naersk { };
-
-        runtimeLibs = with pkgs; [
-          openssl
-          libssh2
-        ];
-
-        pkgConfigDeps = with pkgs; [
-          openssl.dev
-          libssh2
-        ];
-
-        buildTools = with pkgs; [
-          pkg-config
-          rustc
-          cargo
-        ];
-
-        cargoConfig = {
-          PKG_CONFIG_PATH = pkgs.lib.makeSearchPath "lib/pkgconfig" pkgConfigDeps;
-          OPENSSL_NO_VENDOR = 1;
-          OPENSSL_DIR = "${pkgs.openssl.dev}";
-          OPENSSL_LIB_DIR = "${pkgs.lib.getLib pkgs.openssl}/lib";
-        };
-      in
-      {
-        packages = {
-          default = naersk'.buildPackage (
-            {
-              src = ./.;
-
-              buildInputs = runtimeLibs;
-              nativeBuildInputs = [ pkgs.pkg-config ];
-            }
-            // cargoConfig
-          );
-        };
-        checks.e2e = pkgs.testers.runNixOSTest (import ./nixos-test.nix { inherit self; });
-        devShell = pkgs.mkShell {
-          nativeBuildInputs = buildTools ++ runtimeLibs;
-          env = cargoConfig;
-        };
-      }
-    )
-    // {
-      githubActions = nix-github-actions.lib.mkGithubMatrix { checks = self.packages; };
-      nixosModules.default = (import ./nixos-module.nix { inherit self; });
-    };
+    flake-parts.lib.mkFlake { inherit inputs; } (import-tree ./modules);
 }
