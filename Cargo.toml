@@ -1,6 +1,9 @@
 [package]
 name = "gachix"
-version = "0.0.1"
+description = "A decentralized binary cache for Nix over Git"
+license = "GPL-3.0"
+repository = "https://github.com/EphraimSiegfried/gachix"
+version = "0.0.2"
 edition = "2024"
 
 [dependencies]
