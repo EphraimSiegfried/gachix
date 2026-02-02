@@ -18,6 +18,18 @@ or in my
 
 ## Getting started
 
+### Docker
+
+You can run Gachix in a container with
+
+```sh
+docker run ephraimsiegfried/gachix
+```
+
+You can also use this [docker compose file](./docker-compose.yml) to run and
+configure Gachix. Refer to the [configuration section](#Configuration) for more
+settings.
+
 ### Nix
 
 Try it out in a Nix shell with
