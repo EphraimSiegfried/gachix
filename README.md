@@ -2,8 +2,8 @@
 
 Gachix is a decentralized binary cache for Nix. It works on machines without Nix
 installed. It stores Nix packages in a Git repository with a very unique
-structure. Internally, it reduces many store related features of Nix to the Git
-object model and Git operations. This structure simplifies many common Nix store
+structure. Internally, it reduces store related features of Nix to the Git
+object model and Git operations. This structure simplifies common Nix store
 operations, such as finding the dependency closure of a package and replicating
 packages with peers.
 
@@ -18,11 +18,23 @@ or in my
 
 ## Getting started
 
+### Docker
+
+You can run Gachix in a container with
+
+```sh
+docker run ephraimsiegfried/gachix
+```
+
+You can also use this [docker compose file](./docker-compose.yml) to run and
+configure Gachix. Refer to the [configuration section](#Configuration) for more
+settings.
+
 ### Nix
 
 Try it out in a Nix shell with
 
-```
+```sh
 nix shell github:EphraimSiegfried/gachix
 ```
 

@@ -4,15 +4,23 @@
 # should be able to provide the package to the container.
 # this can be tested with:
 #
+# ```bash
 # docker compose up
-# docker exec gachix_service /usr/local/bin/gachix add $(nix build nixpkgs#hello --print-out-paths)
+# docker exec gachix_service gachix add $(nix build nixpkgs#hello --print-out-paths)
+# ```
 #
-# this works provided that the local nix host has this enabled:
-# https://mynixos.com/nixpkgs/option/nix.sshServe.enable
+# this works provided that the local nix host is configured like this:
+# ```nix
+# nix.sshServe = {
+#   enable = true;
+#   protocol = "ssh-ng";
+#   keys = [ "ssh-ed25519 AAAA...." ]; # this public key must match the private key passed to the container
+# };
+# ```
 services:
   app:
     build: .
-    image: gachix:latest
+    image: ephraimsiegfried/gachix:latest
     container_name: gachix_service
     volumes:
       - ~/.ssh/id_ed25519:/id_ed25519
@@ -26,4 +34,3 @@ services:
       - GACHIX__SERVER__PORT=9192
     extra_hosts:
       - "host.docker.internal:host-gateway"
-    command: ["gachix", "serve"]
