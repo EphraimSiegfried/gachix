@@ -12,7 +12,7 @@
 services:
   app:
     build: .
-    image: gachix:latest
+    image: ephraimsiegfried/gachix:latest
     container_name: gachix_service
     volumes:
       - ~/.ssh/id_ed25519:/id_ed25519
@@ -26,4 +26,3 @@ services:
       - GACHIX__SERVER__PORT=9192
     extra_hosts:
       - "host.docker.internal:host-gateway"
-    command: ["gachix", "serve"]
