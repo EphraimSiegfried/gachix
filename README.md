@@ -22,7 +22,7 @@ or in my
 
 Try it out in a Nix shell with
 
-```
+```sh
 nix shell github:EphraimSiegfried/gachix
 ```
 
