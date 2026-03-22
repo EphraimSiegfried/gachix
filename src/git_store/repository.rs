@@ -9,13 +9,11 @@ use git2::RemoteCallbacks;
 use git2::Signature;
 use git2::Time;
 use git2::{ErrorCode, FileMode, Oid, Repository};
-use std::env;
 use std::fs;
 use std::io::Read;
 use std::os::unix::ffi::OsStrExt;
 use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
-use std::path::PathBuf;
 use std::sync::{Arc, RwLock};
 use tracing::{Level, info, instrument, span, trace};
 
@@ -258,7 +256,12 @@ impl GitRepo {
     }
 
     #[instrument(skip(self))]
-    pub fn fetch(&self, url: &str, reference: &str) -> Result<Option<()>> {
+    pub fn fetch(
+        &self,
+        url: &str,
+        reference: &str,
+        private_key_path: impl AsRef<Path> + std::fmt::Debug,
+    ) -> Result<Option<()>> {
         let repo = self.repo.read().unwrap();
         let mut remote = match repo.find_remote("peer") {
             Ok(remote) => remote,
@@ -273,18 +276,7 @@ impl GitRepo {
             trace!("Added reference {r}");
             true
         });
-        callbacks.credentials(|_url, _user_from_url, _allowed_types| {
-            let user = env::var("USER").unwrap();
-            if _allowed_types.contains(git2::CredentialType::USERNAME) {
-                return git2::Cred::username(&user);
-            }
-            Cred::ssh_key(
-                &env::var("USER").unwrap(),
-                None,
-                std::path::Path::new(&format!("{}/.ssh/id_ed25519", env::var("HOME").unwrap())),
-                None,
-            )
-        });
+        callbacks.credentials(self.create_credentials_callback(private_key_path));
         fetch_options.remote_callbacks(callbacks);
         fetch_options.download_tags(git2::AutotagOption::None);
         fetch_options.update_fetchhead(false);

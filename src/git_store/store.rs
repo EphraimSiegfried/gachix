@@ -102,13 +102,19 @@ impl Store {
         for url in &self.settings.remotes {
             let url_str = url.as_str();
             let host = url.host().unwrap();
-            match self.repo.check_remote_health(&url_str) {
-                Ok(_) => info!("Succesfully connected to Git repository at {}", host),
-                Err(e) => {
+            match self.settings.ssh_private_key_path.as_ref() {
+                Some(path) => match self.repo.check_remote_health(&url_str, path) {
+                    Ok(_) => info!("Succesfully connected to Git repository at {}", host),
+                    Err(e) => {
+                        success = false;
+                        warn!("Failed to connect to Git repository {}: {}", host, e)
+                    }
+                },
+                None => {
+                    warn!("Must specify path to private ssh key when using remote peers");
                     success = false;
-                    warn!("Failed to connect to Git repository {}: {}", host, e)
                 }
-            }
+            };
         }
 
         success
@@ -300,10 +306,13 @@ impl Store {
     }
 
     fn fetch_from_remote(&self, package_id: &str, remote: &str) -> Result<Option<Oid>> {
-        if let Some(()) = self
-            .repo
-            .fetch(&remote, &format!("{}/*", self.get_package_ref(package_id)))?
-        {
+        let refspec = format!("{}/*", self.get_package_ref(package_id));
+        let ssh_private_key_path = self
+            .settings
+            .ssh_private_key_path
+            .as_ref()
+            .ok_or_else(|| anyhow!("Cannot fetch: path to private ssh key missing"))?;
+        if let Some(()) = self.repo.fetch(&remote, &refspec, ssh_private_key_path)? {
             let oid = self
                 .get_commit(package_id)
                 .ok_or_else(|| anyhow!("Could not get commit id for {}", package_id))?;
