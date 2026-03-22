@@ -2,6 +2,7 @@ use crate::nar::NarGitStream;
 use crate::nar::decode::NarGitDecoder;
 use anyhow::{Context, Result, anyhow, bail};
 use git2::Cred;
+use git2::CredentialType;
 use git2::Direction;
 use git2::FetchOptions;
 use git2::RemoteCallbacks;
@@ -14,6 +15,7 @@ use std::io::Read;
 use std::os::unix::ffi::OsStrExt;
 use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
+use std::path::PathBuf;
 use std::sync::{Arc, RwLock};
 use tracing::{Level, info, instrument, span, trace};
 
@@ -225,22 +227,25 @@ impl GitRepo {
         Ok(entry_oid)
     }
 
-    pub fn check_remote_health(&self, url: &str) -> Result<()> {
+    fn create_credentials_callback(
+        &self,
+        private_key_path: impl AsRef<Path>,
+    ) -> impl Fn(&str, Option<&str>, CredentialType) -> Result<Cred, git2::Error> {
+        move |_url, _user_from_url, _allowed_types| {
+            let user = whoami::username()
+                .map_err(|e| git2::Error::from_str(&format!("Couldn't find service user: {e}")))?;
+            if _allowed_types.contains(CredentialType::USERNAME) {
+                return Cred::username(&user);
+            }
+            Cred::ssh_key(&user, None, private_key_path.as_ref(), None)
+        }
+    }
+
+    pub fn check_remote_health(&self, url: &str, private_key_path: impl AsRef<Path>) -> Result<()> {
         let repo = self.repo.read().unwrap();
         let mut remote = repo.remote_anonymous(url)?;
         let mut callbacks = RemoteCallbacks::new();
-        callbacks.credentials(|_url, _user_from_url, _allowed_types| {
-            let user = env::var("USER").unwrap();
-            if _allowed_types.contains(git2::CredentialType::USERNAME) {
-                return git2::Cred::username(&user);
-            }
-            Cred::ssh_key(
-                &env::var("USER").unwrap(),
-                None,
-                std::path::Path::new(&format!("{}/.ssh/id_ed25519", env::var("HOME").unwrap())),
-                None,
-            )
-        });
+        callbacks.credentials(self.create_credentials_callback(private_key_path));
         match remote.connect_auth(Direction::Fetch, Some(callbacks), None) {
             Ok(connection) => {
                 connection.list()?;
