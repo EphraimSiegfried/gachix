@@ -1,3 +1,4 @@
+use crate::git_store::GIT_USERNAME;
 use crate::nar::NarGitStream;
 use crate::nar::decode::NarGitDecoder;
 use anyhow::{Context, Result, anyhow, bail};
@@ -230,8 +231,7 @@ impl GitRepo {
         private_key_path: impl AsRef<Path>,
     ) -> impl Fn(&str, Option<&str>, CredentialType) -> Result<Cred, git2::Error> {
         move |_url, _user_from_url, _allowed_types| {
-            let user = whoami::username()
-                .map_err(|e| git2::Error::from_str(&format!("Couldn't find service user: {e}")))?;
+            let user = GIT_USERNAME;
             if _allowed_types.contains(CredentialType::USERNAME) {
                 return Cred::username(&user);
             }
