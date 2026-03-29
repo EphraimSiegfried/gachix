@@ -464,11 +464,8 @@ mod tests {
     pub fn set_repo_path(path: &PathBuf) -> settings::Store {
         settings::Store {
             path: path.clone(),
-            builders: vec![],
-            remotes: vec![],
             use_local_nix_daemon: true,
-            sign_private_key_path: None,
-            ssh_private_key_path: None,
+            ..Default::default()
         }
     }
 

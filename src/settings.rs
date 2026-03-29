@@ -4,13 +4,13 @@ use config::{Config, ConfigError, Environment, File};
 use serde::Deserialize;
 use url::Url;
 
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Deserialize, Clone, Default)]
 pub struct Server {
     pub port: u16,
     pub host: String,
 }
 
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Deserialize, Clone, Default)]
 pub struct Store {
     pub path: PathBuf,
     pub builders: Vec<Url>,
@@ -20,7 +20,7 @@ pub struct Store {
     pub ssh_private_key_path: Option<PathBuf>,
 }
 
-#[derive(Debug, Deserialize, Clone)]
+#[derive(Debug, Deserialize, Clone, Default)]
 pub struct Settings {
     pub store: Store,
     pub server: Server,
