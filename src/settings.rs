@@ -18,6 +18,7 @@ pub struct Store {
     pub use_local_nix_daemon: bool,
     pub sign_private_key_path: Option<PathBuf>,
     pub ssh_private_key_path: Option<PathBuf>,
+    pub known_hosts_path: Option<PathBuf>,
 }
 
 #[derive(Debug, Deserialize, Clone, Default)]
@@ -35,6 +36,7 @@ store:
     builders: []
     remotes: []
     use_local_nix_daemon: true
+    known_hosts_path: ~/.ssh/known_hosts
 
 server:
     host: localhost

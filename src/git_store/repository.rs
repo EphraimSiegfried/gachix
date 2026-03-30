@@ -2,6 +2,8 @@ use crate::git_store::GIT_USERNAME;
 use crate::nar::NarGitStream;
 use crate::nar::decode::NarGitDecoder;
 use anyhow::{Context, Result, anyhow, bail};
+use futures::AsyncBufReadExt;
+use git2::CertificateCheckStatus;
 use git2::Cred;
 use git2::CredentialType;
 use git2::Direction;
@@ -9,9 +11,10 @@ use git2::FetchOptions;
 use git2::RemoteCallbacks;
 use git2::Signature;
 use git2::Time;
+use git2::cert::Cert;
 use git2::{ErrorCode, FileMode, Oid, Repository};
 use std::fs;
-use std::io::Read;
+use std::io::{BufRead, Read};
 use std::os::unix::ffi::OsStrExt;
 use std::os::unix::fs::PermissionsExt;
 use std::path::Path;
@@ -239,6 +242,29 @@ impl GitRepo {
         }
     }
 
+    fn create_certificate_check_callback(
+        &self,
+        known_hosts_path: impl AsRef<Path>,
+    ) -> impl Fn(&Cert<'_>, &str) -> Result<CertificateCheckStatus, git2::Error> {
+        move |cert, hostname| {
+            let known_hosts_file = fs::read(known_hosts_path.as_ref()).map_err(|e| {
+                git2::Error::from_str(&format!("Could not read known hosts file: {e}"))
+            })?;
+            for line in BufRead::lines(known_hosts_file.as_slice()) {
+                let line = line.map_err(|e| {
+                    git2::Error::from_str(&format!("Could not read known hosts file: {e}"))
+                })?;
+                let mut iter = line.splitn(3, '\n');
+                // iter.next().is_some_and(|c| c == cert.as_hostkey().unwrap().hostkey());
+            }
+
+            // known_hosts_file.lines().any(|line| {
+            //     line.unwrap()
+            // })
+
+            Ok(CertificateCheckStatus::CertificateOk)
+        }
+    }
     pub fn check_remote_health(&self, url: &str, private_key_path: impl AsRef<Path>) -> Result<()> {
         let repo = self.repo.read().unwrap();
         let mut remote = repo.remote_anonymous(url)?;
@@ -256,12 +282,16 @@ impl GitRepo {
     }
 
     #[instrument(skip(self))]
-    pub fn fetch(
+    pub fn fetch<F>(
         &self,
         url: &str,
         reference: &str,
-        private_key_path: impl AsRef<Path> + std::fmt::Debug,
-    ) -> Result<Option<()>> {
+        private_key_path: F,
+        known_hosts_path: F,
+    ) -> Result<Option<()>>
+    where
+        F: AsRef<Path> + std::fmt::Debug,
+    {
         let repo = self.repo.read().unwrap();
         let mut remote = match repo.find_remote("peer") {
             Ok(remote) => remote,

@@ -99,15 +99,20 @@ impl Store {
             daemon.disconnect();
         }
 
+        let known_hosts_path = self.settings.known_hosts_path.as_ref().unwrap();
         for url in &self.settings.remotes {
             let url_str = url.as_str();
-            let host = url.host().unwrap();
+            let remote_host = url.host().unwrap();
             match self.settings.ssh_private_key_path.as_ref() {
-                Some(path) => match self.repo.check_remote_health(&url_str, path) {
-                    Ok(_) => info!("Succesfully connected to Git repository at {}", host),
+                Some(private_key_path) => match self.repo.check_remote_health(
+                    &url_str,
+                    private_key_path,
+                    known_hosts_path,
+                ) {
+                    Ok(_) => info!("Succesfully connected to Git repository at {}", remote_host),
                     Err(e) => {
                         success = false;
-                        warn!("Failed to connect to Git repository {}: {}", host, e)
+                        warn!("Failed to connect to Git repository {}: {}", remote_host, e)
                     }
                 },
                 None => {
@@ -312,7 +317,15 @@ impl Store {
             .ssh_private_key_path
             .as_ref()
             .ok_or_else(|| anyhow!("Cannot fetch: path to private ssh key missing"))?;
-        if let Some(()) = self.repo.fetch(&remote, &refspec, ssh_private_key_path)? {
+        let known_hosts_path = self
+            .settings
+            .known_hosts_path
+            .as_ref()
+            .ok_or_else(|| anyhow!("Cannot fetch: path to ssh known hosts file is missing"));
+        if let Some(()) =
+            self.repo
+                .fetch(&remote, &refspec, ssh_private_key_path, known_hosts_path)?
+        {
             let oid = self
                 .get_commit(package_id)
                 .ok_or_else(|| anyhow!("Could not get commit id for {}", package_id))?;
