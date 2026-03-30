@@ -49,6 +49,15 @@
           };
         };
 
+        exposeRepository = {
+          enable = lib.mkEnableOption "Serve Git repository via SSH";
+          authorizedKeys = lib.mkOption {
+            type = lib.types.listOf lib.types.str;
+            default = [ ];
+            description = "A list of OpenSSH public keys from peers which are allowed to pull from the repository.";
+          };
+        };
+
         user = lib.mkOption {
           type = lib.types.str;
           default = "gachix";
@@ -89,79 +98,107 @@
         };
       };
 
-      config = lib.mkIf cfg.enable {
-        services.gachix = {
-          inherit finalPackage;
-          settings = {
-            store = {
-              path = lib.mkForce "/var/lib/${cfg.stateDir}/cache";
+      config = lib.mkIf cfg.enable (
+        lib.mkMerge [
+          {
+            services.gachix = {
+              inherit finalPackage;
+              settings = {
+                store.path = lib.mkForce "/var/lib/${cfg.stateDir}/cache";
+                server.host = lib.mkForce "0.0.0.0";
+                server.port = lib.mkForce cfg.port;
+              };
             };
-            server = {
-              host = lib.mkForce "0.0.0.0";
-              port = lib.mkForce cfg.port;
+
+            networking.firewall.allowedTCPPorts = lib.optional cfg.openFirewall cfg.port;
+
+            users.users.${cfg.user} = {
+              isSystemUser = true;
+              group = cfg.group;
+              createHome = false;
             };
-          };
-        };
+            users.groups.${cfg.group} = { };
 
-        networking.firewall.allowedTCPPorts = lib.optional (cfg.openFirewall) cfg.port;
+            systemd.services.gachix = {
+              description = "Gachix nix cache";
+              wantedBy = [ "multi-user.target" ];
+              after = [ "network.target" ];
+              script = ''
+                ${cfg.finalPackage}/bin/gachix serve
+              '';
 
-        users = {
-          users.${cfg.user} = {
-            isSystemUser = true;
-            group = cfg.group;
-          };
-          groups.${cfg.group} = { };
-        };
+              serviceConfig = {
+                User = cfg.user;
+                Group = cfg.group;
 
-        systemd.services.gachix = {
-          description = "Gachix nix cache";
-          wantedBy = [ "multi-user.target" ];
-          after = [ "network.target" ];
-          script = ''
-            ${cfg.finalPackage}/bin/gachix serve
-          '';
+                BindPaths = lib.optional exposeLocalNix "/nix/var/nix/daemon-socket/socket";
+                BindReadOnlyPaths = lib.optional exposeLocalNix "/nix";
 
-          serviceConfig = {
-            User = cfg.user;
-            Group = cfg.group;
+                WorkingDirectory = "/var/lib/${cfg.stateDir}";
+                StateDirectory = cfg.stateDir;
+                RuntimeDirectory = cfg.runDir;
 
-            BindPaths = lib.optional exposeLocalNix "/nix/var/nix/daemon-socket/socket";
-            BindReadOnlyPaths = lib.optional exposeLocalNix "/nix";
+                # standard hardening options
+                ProcSubset = "pid";
+                ProtectProc = "invisible";
+                AmbientCapabilities = [ "CAP_NET_BIND_SERVICE" ];
+                NoNewPrivileges = true;
+                ProtectSystem = "strict";
+                ProtectHome = true;
+                PrivateTmp = true;
+                PrivateDevices = true;
+                ProtectHostname = true;
+                ProtectClock = true;
+                ProtectKernelTunables = true;
+                ProtectKernelModules = true;
+                ProtectKernelLogs = true;
+                ProtectControlGroups = true;
+                RestrictAddressFamilies = [
+                  "AF_UNIX"
+                  "AF_INET"
+                  "AF_INET6"
+                ];
+                RestrictNamespaces = true;
+                LockPersonality = true;
+                RestrictRealtime = true;
+                RestrictSUIDSGID = true;
+                RemoveIPC = true;
+                PrivateMounts = true;
+              };
+            };
 
-            WorkingDirectory = "/var/lib/${cfg.stateDir}";
-            StateDirectory = cfg.stateDir;
-            RuntimeDirectory = cfg.runDir;
+            environment.systemPackages = [ cfg.finalPackage ];
+          }
 
-            # standard hardening options
-            ProcSubset = "pid";
-            ProtectProc = "invisible";
-            AmbientCapabilities = [ "CAP_NET_BIND_SERVICE" ];
-            NoNewPrivileges = true;
-            ProtectSystem = "strict";
-            ProtectHome = true;
-            PrivateTmp = true;
-            PrivateDevices = true;
-            ProtectHostname = true;
-            ProtectClock = true;
-            ProtectKernelTunables = true;
-            ProtectKernelModules = true;
-            ProtectKernelLogs = true;
-            ProtectControlGroups = true;
-            RestrictAddressFamilies = [
-              "AF_UNIX"
-              "AF_INET"
-              "AF_INET6"
-            ];
-            RestrictNamespaces = true;
-            LockPersonality = true;
-            RestrictRealtime = true;
-            RestrictSUIDSGID = true;
-            RemoveIPC = true;
-            PrivateMounts = true;
-          };
-        };
+          # Git Server Configuration
+          # Mostly copied from https://wiki.nixos.org/wiki/Git
 
-        environment.systemPackages = [ cfg.finalPackage ];
-      };
+          (lib.mkIf cfg.exposeRepository.enable {
+            users.users.gachix_peer = {
+              isSystemUser = true;
+              group = "git";
+              home = "/var/lib/${cfg.stateDir}";
+              createHome = true;
+              shell = "${pkgs.git}/bin/git-shell";
+              openssh.authorizedKeys.keys = cfg.exposeRepository.authorizedKeys;
+            };
+
+            users.groups.git = { };
+
+            services.openssh = {
+              enable = true;
+              extraConfig = ''
+                Match User gachix_peer
+                  AllowTcpForwarding no
+                  AllowAgentForwarding no
+                  PasswordAuthentication no
+                  PermitTTY no
+                  X11Forwarding no
+              '';
+            };
+          })
+        ]
+      );
+
     };
 }
