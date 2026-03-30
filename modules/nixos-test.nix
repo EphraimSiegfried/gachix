@@ -1,7 +1,7 @@
 { self, ... }:
 {
   perSystem =
-    { pkgs, ... }:
+    { pkgs, lib, ... }:
     let
       port = 9192;
       # copypasted from nixpkgs for better eval time
@@ -18,50 +18,97 @@
       snakeOilEd25519PublicKey = "ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIDPQXmEVMVLmeFRyafKMVWgPDkv8/uRBTwmcEDatZzMD snakeoil";
     in
     {
-      checks.e2e = pkgs.testers.runNixOSTest {
-        name = "gachix";
-        nodes = {
-          server = {
-            imports = [ self.nixosModules.default ];
+      checks = {
+        e2e = pkgs.testers.runNixOSTest {
+          name = "gachix e2e";
+          nodes = {
+            server = {
+              imports = [ self.nixosModules.default ];
 
-            nix.enable = false; # gachix should be able to run without nix available
+              nix.enable = false; # gachix should be able to run without nix available
 
-            services.gachix = {
-              enable = true;
-              openFirewall = true;
-              inherit port;
-              settings.store = {
-                ssh_private_key_path = snakeOilEd25519PrivateKey;
-                builders = [ "ssh://client" ];
-                use_local_nix_daemon = false;
+              services.gachix = {
+                enable = true;
+                openFirewall = true;
+                inherit port;
+                settings.store = {
+                  ssh_private_key_path = snakeOilEd25519PrivateKey;
+                  builders = [ "ssh://client" ];
+                  use_local_nix_daemon = false;
+                };
+              };
+            };
+            client = {
+              environment.systemPackages = with pkgs; [
+                curl
+                gawk
+                hello
+              ];
+              nix.sshServe = {
+                enable = true;
+                keys = [ snakeOilEd25519PublicKey ];
+                protocol = "ssh-ng";
               };
             };
           };
-          client = {
-            environment.systemPackages = with pkgs; [
-              curl
-              gawk
-              hello
-            ];
-            nix.sshServe = {
-              enable = true;
-              keys = [ snakeOilEd25519PublicKey ];
-              protocol = "ssh-ng";
+          testScript = ''
+            start_all()
+
+            server.wait_for_unit("gachix.service")
+            client.wait_for_unit("sshd.service")
+
+            server.wait_for_open_port(${toString port})
+            client.wait_for_open_port(22)
+
+            server.succeed("sudo -u gachix gachix add ${pkgs.hello}")
+            client.succeed("curl -f \"http://server:${toString port}/$(basename ${pkgs.hello} | awk -F- '{print $1}').narinfo\"")
+          '';
+        };
+        replication = pkgs.testers.runNixOSTest {
+          name = "gachix replication";
+          nodes = {
+            peer1 = {
+              imports = [ self.nixosModules.default ];
+              environment.systemPackages = with pkgs; [ hello ];
+
+              networking.firewall.allowedTCPPorts = [ 22 ];
+              services.gachix = {
+                enable = true;
+                exposeRepository = {
+                  enable = true;
+                  authorizedKeys = [ snakeOilEd25519PublicKey ];
+                };
+              };
+            };
+            peer2 = {
+              imports = [ self.nixosModules.default ];
+              services.gachix = {
+                enable = true;
+                settings.store = {
+                  ssh_private_key_path = snakeOilEd25519PrivateKey;
+                  remotes = [ "ssh://peer1:/var/lib/cache" ];
+                };
+
+              };
+              programs.ssh.extraConfig = ''
+                Host peer1
+                  StrictHostKeyChecking no
+                  UserKnownHostsFile /dev/null
+              '';
             };
           };
+          testScript = ''
+            start_all()
+
+            peer1.wait_for_unit("gachix.service")
+            peer2.wait_for_unit("gachix.service")
+
+            peer1.wait_for_open_port(22)
+
+            peer1.succeed("sudo -u gachix gachix add ${pkgs.hello}")
+            peer2.succeed("sudo -u gachix gachix add ${pkgs.hello}")
+          '';
         };
-        testScript = ''
-          start_all()
-
-          server.wait_for_unit("gachix.service")
-          client.wait_for_unit("sshd.service")
-
-          server.wait_for_open_port(${toString port})
-          client.wait_for_open_port(22)
-
-          server.succeed("sudo -u gachix gachix add ${pkgs.hello}")
-          client.succeed("curl -f \"http://server:${toString port}/$(basename ${pkgs.hello} | awk -F- '{print $1}').narinfo\"")
-        '';
       };
     };
 }
