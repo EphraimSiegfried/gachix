@@ -123,7 +123,7 @@ fn test_narinfo_request() -> Result<()> {
 fn test_package_retrieval() -> Result<()> {
     let tempdir = TempDir::new()?;
     let temp_path = tempdir.path();
-    let port = 9239;
+    let port = 10231;
     let base_url = format!("http://localhost:{}", port);
     let repo_path = &temp_path.join("gachix");
 
