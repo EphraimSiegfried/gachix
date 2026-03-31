@@ -2,7 +2,7 @@ use crate::git_store::GIT_USERNAME;
 use crate::nar::NarGitStream;
 use crate::nar::decode::NarGitDecoder;
 use anyhow::{Context, Result, anyhow, bail};
-use futures::AsyncBufReadExt;
+use base64::{Engine, engine::general_purpose};
 use git2::CertificateCheckStatus;
 use git2::Cred;
 use git2::CredentialType;
@@ -246,30 +246,48 @@ impl GitRepo {
         &self,
         known_hosts_path: impl AsRef<Path>,
     ) -> impl Fn(&Cert<'_>, &str) -> Result<CertificateCheckStatus, git2::Error> {
+        let known_hosts_path = known_hosts_path.as_ref().to_path_buf();
         move |cert, hostname| {
-            let known_hosts_file = fs::read(known_hosts_path.as_ref()).map_err(|e| {
+            let known_hosts_file = fs::read(&known_hosts_path).map_err(|e| {
                 git2::Error::from_str(&format!("Could not read known hosts file: {e}"))
             })?;
+            let hostkey = cert
+                .as_hostkey()
+                .ok_or_else(|| git2::Error::from_str("Host doesn't have a certificate"))?
+                .hostkey()
+                .ok_or_else(|| git2::Error::from_str("Could not get host key"))?;
             for line in BufRead::lines(known_hosts_file.as_slice()) {
                 let line = line.map_err(|e| {
                     git2::Error::from_str(&format!("Could not read known hosts file: {e}"))
                 })?;
-                let mut iter = line.splitn(3, '\n');
-                // iter.next().is_some_and(|c| c == cert.as_hostkey().unwrap().hostkey());
+                let mut iter = line.splitn(3, ' ');
+                let host_matches = iter.next().is_some_and(|hn| hn == hostname);
+                let _keytype = iter.next();
+                let key_matches = iter.next().is_some_and(|hk| {
+                    general_purpose::STANDARD.decode(hk).ok().as_deref() == Some(hostkey)
+                });
+                if host_matches && key_matches {
+                    return Ok(CertificateCheckStatus::CertificateOk);
+                }
             }
-
-            // known_hosts_file.lines().any(|line| {
-            //     line.unwrap()
-            // })
-
-            Ok(CertificateCheckStatus::CertificateOk)
+            Ok(CertificateCheckStatus::CertificatePassthrough)
         }
     }
-    pub fn check_remote_health(&self, url: &str, private_key_path: impl AsRef<Path>) -> Result<()> {
+
+    pub fn check_remote_health<F>(
+        &self,
+        url: &str,
+        private_key_path: F,
+        known_hosts_path: F,
+    ) -> Result<()>
+    where
+        F: AsRef<Path> + std::fmt::Debug,
+    {
         let repo = self.repo.read().unwrap();
         let mut remote = repo.remote_anonymous(url)?;
         let mut callbacks = RemoteCallbacks::new();
         callbacks.credentials(self.create_credentials_callback(private_key_path));
+        callbacks.certificate_check(self.create_certificate_check_callback(known_hosts_path));
         match remote.connect_auth(Direction::Fetch, Some(callbacks), None) {
             Ok(connection) => {
                 connection.list()?;
@@ -307,6 +325,7 @@ impl GitRepo {
             true
         });
         callbacks.credentials(self.create_credentials_callback(private_key_path));
+        callbacks.certificate_check(self.create_certificate_check_callback(known_hosts_path));
         fetch_options.remote_callbacks(callbacks);
         fetch_options.download_tags(git2::AutotagOption::None);
         fetch_options.update_fetchhead(false);
