@@ -321,7 +321,7 @@ impl Store {
             .settings
             .known_hosts_path
             .as_ref()
-            .ok_or_else(|| anyhow!("Cannot fetch: path to ssh known hosts file is missing"));
+            .ok_or_else(|| anyhow!("Cannot fetch: path to ssh known hosts file is missing"))?;
         if let Some(()) =
             self.repo
                 .fetch(&remote, &refspec, ssh_private_key_path, known_hosts_path)?
